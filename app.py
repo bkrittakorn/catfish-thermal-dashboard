@@ -149,25 +149,73 @@ cooling_cost = st.sidebar.number_input(
     value=80_000.0, step=5_000.0
 )
 
+
 if page == "Overview":
     st.subheader("Overview")
-    temp = st.slider("Water temperature (°C)", 25.0, 36.0, 29.0, 0.5)
+    st.caption(
+        "Exploratory dashboard for temperature-related hatchery scenarios"
+    )
+
+    temp = st.slider(
+        "Water temperature (°C)",
+        min_value=25.0,
+        max_value=36.0,
+        value=29.0,
+        step=0.5
+    )
+
     fert, hatch, survival = biological_rates(temp)
 
     survivors = eggs * fert * hatch * survival
     revenue = survivors * fry_price
     cost = base_cost + cooling_cost
+    net_result = revenue - cost
 
-    a, b, c, d = st.columns(4)
-    a.metric("Fertilization", f"{fert:.1%}")
-    b.metric("Hatching", f"{hatch:.1%}")
-    c.metric("Estimated survivors", f"{survivors:,.0f}")
-    d.metric("Illustrative net result", f"฿{revenue - cost:,.0f}")
+    st.markdown("### Biological estimates")
 
-    st.info(
-        "Rates at temperatures outside the two observations are illustrative "
-        "and should not be interpreted as validated biological predictions."
+    a, b, c = st.columns(3)
+    a.metric("Fertilization rate", f"{fert:.1%}")
+    b.metric("Hatching rate", f"{hatch:.1%}")
+    c.metric("Survival to 72 h", f"{survival:.1%}")
+
+    st.markdown("### Hatchery economic scenario")
+
+    d, e, f = st.columns(3)
+    d.metric("Estimated survivors", f"{survivors:,.0f}")
+    e.metric("Illustrative revenue", f"฿{revenue:,.2f}")
+    f.metric("Total specified costs", f"฿{cost:,.2f}")
+
+    st.metric(
+        "Illustrative net result",
+        f"฿{net_result:,.2f}",
+        help="Illustrative revenue minus the specified operating and cooling costs."
     )
+
+    with st.expander("View calculation assumptions"):
+        st.write(f"Water temperature: {temp:.1f} °C")
+        st.write(f"Initial egg count: {eggs:,.0f}")
+        st.write(f"Price per fry: ฿{fry_price:,.2f}")
+        st.write(f"Operating cost: ฿{base_cost:,.2f}")
+        st.write(f"Cooling cost: ฿{cooling_cost:,.2f}")
+
+        st.latex(
+            r"N_{\mathrm{survivors}}"
+            r"=N_0\times F\times H\times S_{72}"
+        )
+        st.latex(
+            r"\mathrm{Net\ result}"
+            r"=\mathrm{Revenue}-\mathrm{Total\ costs}"
+        )
+
+    st.warning(
+        "Important limitation: biological rates are based on observations "
+        "at 29°C and 32°C. The dashboard linearly interpolates between "
+        "these temperatures and holds rates at the nearest endpoint "
+        "outside this range. These are illustrative estimates, not "
+        "validated predictions of hatchery performance. The economic "
+        "result includes only the costs specified in the calculator."
+    )
+
 
 elif page == "Hatchery Calculator":
     st.subheader("Hatchery Calculator")
