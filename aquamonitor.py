@@ -5,6 +5,17 @@ import numpy as np
 import plotly.express as px
 
 
+# ============================================================
+# 1. LANGUAGE HELPER
+# ============================================================
+def tr(en, th):
+    """Translate interface text using the language selected in app.py."""
+    return th if st.session_state.get("language", "English") == "ไทย" else en
+
+
+# ============================================================
+# 2. REFERENCE DOSES AND METALS
+# ============================================================
 RFD = {
     "Cr": 0.003,
     "Pb": 0.0035,
@@ -19,9 +30,48 @@ METALS = {
     "Cd": "Cadmium (Cd)",
 }
 
+METAL_LABELS_TH = {
+    "Cr": "โครเมียมรวม (Cr)",
+    "Pb": "ตะกั่ว (Pb)",
+    "Ni": "นิกเกิล (Ni)",
+    "Cd": "แคดเมียม (Cd)",
+}
 
+# Assumed daily fish consumption in kg/day.
+# This is a model assumption and should be verified before real use.
+FISH_CONSUMPTION_RATE = 0.0215
+
+
+def metal_label(metal):
+    """Return the metal name in the currently selected language."""
+    if st.session_state.get("language", "English") == "ไทย":
+        return METAL_LABELS_TH.get(metal, metal)
+    return METALS.get(metal, metal)
+
+
+# ============================================================
+# 3. SEDIMENT MODEL
+# ============================================================
 def sediment_model(initial, years, input_rate, decay):
-    """Illustrative sediment concentration scenario."""
+    """
+    Illustrative sediment concentration scenario.
+
+    Parameters
+    ----------
+    initial : float
+        Initial concentration.
+    years : int
+        Number of years to simulate.
+    input_rate : float
+        Illustrative annual input rate.
+    decay : float
+        Illustrative decay coefficient.
+
+    Returns
+    -------
+    list[float]
+        Concentration for year 0 through the selected final year.
+    """
     result = []
 
     for year in range(years + 1):
@@ -38,378 +88,668 @@ def sediment_model(initial, years, input_rate, decay):
 
     return result
 
-def run_aquamonitor():
-    language = st.session_state.get("language", "English")
-    is_thai = language == "ไทย"
 
+# ============================================================
+# 4. MAIN AQUAMONITOR INTERFACE
+# ============================================================
+def run_aquamonitor():
+
+    is_thai = st.session_state.get("language", "English") == "ไทย"
+
+    # --------------------------------------------------------
+    # Page introduction
+    # --------------------------------------------------------
     st.title("💧 AquaMonitor")
 
     st.subheader(
-        "วิเคราะห์คุณภาพน้ำและความเสี่ยงจากโลหะหนักในปลา"
-        if is_thai
-        else "Water Quality & Heavy Metal Risk Assessment in Fish"
+        tr(
+            "Water Quality & Heavy Metal Risk Assessment in Fish",
+            "การประเมินคุณภาพน้ำและความเสี่ยงจากโลหะหนักในปลา",
+        )
     )
 
     st.write(
-        "กรอกผลตรวจโลหะหนักในกล้ามเนื้อปลา "
-        "เพื่อคำนวณค่าคัดกรอง HQ และ HI"
-        if is_thai
-        else "Enter measured heavy metal concentrations in fish muscle "
-             "to calculate screening-level Hazard Quotients (HQ) "
-             "and the Hazard Index (HI)."
+        tr(
+            "Enter measured heavy metal concentrations in fish muscle "
+            "to calculate screening-level Hazard Quotients (HQ) "
+            "and the Hazard Index (HI).",
+            "กรอกค่าความเข้มข้นโลหะหนักที่ตรวจวัดได้ในกล้ามเนื้อปลา "
+            "เพื่อคำนวณค่าคัดกรอง HQ และดัชนีความเป็นอันตราย HI",
+        )
     )
 
     st.info(
-        "This tool is intended for preliminary screening and scenario "
-        "exploration only. It does not certify food safety. Verify the "
-        "reference doses (RfDs), exposure assumptions, units, and "
-        "calculation methods against appropriate scientific sources "
-        "before using the results for real-world decisions."
+        tr(
+            "This tool is intended for preliminary screening and scenario "
+            "exploration only. It does not certify food safety. Verify the "
+            "reference doses (RfDs), exposure assumptions, units, and "
+            "calculation methods against appropriate scientific sources "
+            "before using the results for real-world decisions.",
+            "เครื่องมือนี้ใช้สำหรับการคัดกรองเบื้องต้นและการสำรวจสถานการณ์เท่านั้น "
+            "ไม่ใช่การรับรองความปลอดภัยของอาหาร ควรตรวจสอบค่าอ้างอิงความเป็นพิษ "
+            "(RfD) สมมติฐานการรับสัมผัส หน่วย และวิธีคำนวณกับแหล่งข้อมูลทางวิชาการ "
+            "ที่เหมาะสมก่อนนำผลไปใช้ประกอบการตัดสินใจจริง",
+        )
     )
 
-    # 1. Fish muscle concentrations
-    st.markdown("### 1. Heavy Metal Concentrations in Fish Muscle")
+    # --------------------------------------------------------
+    # Section 1: Fish muscle heavy metal concentrations
+    # --------------------------------------------------------
+    st.header(
+        tr(
+            "1. Heavy Metal Concentrations in Fish Muscle",
+            "1. ความเข้มข้นโลหะหนักในกล้ามเนื้อปลา",
+        )
+    )
 
     st.caption(
-        "Unit: mg/kg wet weight. Leave a field blank if no measurement "
-        "is available. Missing measurements are not treated as zero."
+        tr(
+            "Unit: mg/kg wet weight. Leave a field blank if no measurement "
+            "is available. Missing measurements are not treated as zero.",
+            "หน่วย: mg/kg น้ำหนักเปียก เว้นช่องว่างหากไม่มีผลตรวจวัด "
+            "ข้อมูลที่ไม่มีจะไม่ถูกนับเป็นศูนย์",
+        )
     )
 
-    c1, c2 = st.columns(2)
-    concentrations = {}
+    left_col, right_col = st.columns(2)
 
-    with c1:
-        concentrations["Cr"] = st.number_input(
-            "Total Chromium, Cr (mg/kg)",
+    with left_col:
+        cr = st.number_input(
+            tr("Total Chromium, Cr (mg/kg)", "โครเมียมรวม Cr (mg/kg)"),
             min_value=0.0,
             value=None,
-            step=0.01,
+            step=0.001,
             format="%.4f",
-            key="am_cr"
+            key="am_cr",
+            help=tr(
+                "Enter the measured concentration in fish muscle.",
+                "กรอกค่าความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
         )
 
-        concentrations["Ni"] = st.number_input(
-            "Nickel, Ni (mg/kg)",
+        ni = st.number_input(
+            tr("Nickel, Ni (mg/kg)", "นิกเกิล Ni (mg/kg)"),
             min_value=0.0,
             value=None,
-            step=0.01,
+            step=0.001,
             format="%.4f",
-            key="am_ni"
+            key="am_ni",
+            help=tr(
+                "Enter the measured concentration in fish muscle.",
+                "กรอกค่าความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
         )
 
-    with c2:
-        concentrations["Pb"] = st.number_input(
-            "Lead, Pb (mg/kg)",
+    with right_col:
+        pb = st.number_input(
+            tr("Lead, Pb (mg/kg)", "ตะกั่ว Pb (mg/kg)"),
             min_value=0.0,
             value=None,
-            step=0.01,
+            step=0.001,
             format="%.4f",
-            key="am_pb"
+            key="am_pb",
+            help=tr(
+                "Enter the measured concentration in fish muscle.",
+                "กรอกค่าความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
         )
 
-        concentrations["Cd"] = st.number_input(
-            "Cadmium, Cd (mg/kg)",
+        cd = st.number_input(
+            tr("Cadmium, Cd (mg/kg)", "แคดเมียม Cd (mg/kg)"),
             min_value=0.0,
             value=None,
-            step=0.01,
+            step=0.001,
             format="%.4f",
-            key="am_cd"
+            key="am_cd",
+            help=tr(
+                "Enter the measured concentration in fish muscle.",
+                "กรอกค่าความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
         )
+
+    st.subheader(
+        tr("Exposure assumptions", "สมมติฐานการรับสัมผัส")
+    )
 
     body_weight = st.number_input(
-        "Consumer Body Weight (kg)",
+        tr("Consumer body weight (kg)", "น้ำหนักตัวผู้บริโภค (kg)"),
         min_value=1.0,
         value=50.0,
         step=1.0,
-        key="am_weight"
+        key="am_weight",
+        help=tr(
+            "Body weight is used in the screening calculation.",
+            "น้ำหนักตัวใช้ในการคำนวณเพื่อการคัดกรอง",
+        ),
     )
 
-    # 2. Optional sediment data
-    st.markdown("### 2. Sediment Chromium (Optional)")
+    st.caption(
+        tr(
+            f"Assumed daily fish consumption: "
+            f"{FISH_CONSUMPTION_RATE:.4f} kg/day.",
+            f"ปริมาณการบริโภคปลาต่อวันที่สมมติ: "
+            f"{FISH_CONSUMPTION_RATE:.4f} kg/day",
+        )
+    )
+
+    # --------------------------------------------------------
+    # Section 2: Optional sediment scenario
+    # --------------------------------------------------------
+    st.header(
+        tr(
+            "2. Optional Sediment Chromium Scenario",
+            "2. สถานการณ์โครเมียมในตะกอน (ไม่บังคับ)",
+        )
+    )
+
+    st.write(
+        tr(
+            "Optionally enter an initial sediment chromium concentration "
+            "to explore hypothetical future scenarios.",
+            "หากมีข้อมูล สามารถกรอกความเข้มข้นโครเมียมเริ่มต้นในตะกอน "
+            "เพื่อสำรวจสถานการณ์ในอนาคตที่สมมติขึ้นได้",
+        )
+    )
 
     sediment_cr = st.number_input(
-        "Sediment Chromium, Cr (mg/kg)",
+        tr(
+            "Initial sediment chromium concentration (mg/kg)",
+            "ความเข้มข้นโครเมียมเริ่มต้นในตะกอน (mg/kg)",
+        ),
         min_value=0.0,
         value=None,
-        step=0.1,
+        step=0.01,
         format="%.4f",
-        key="am_sediment"
+        key="am_sediment",
     )
 
     horizon = st.selectbox(
-        "Simulation Period",
-        [1, 5, 10],
+        tr("Simulation period", "ระยะเวลาจำลอง"),
+        options=[1, 5, 10],
         index=1,
-        format_func=lambda x: f"{x} years",
-        key="am_horizon"
+        format_func=lambda x: tr(f"{x} years", f"{x} ปี"),
+        key="am_horizon",
     )
 
-    if not st.button(
-        "Analyze Results",
+    # --------------------------------------------------------
+    # Analysis button
+    # --------------------------------------------------------
+    analyze = st.button(
+        tr("Analyze Results", "วิเคราะห์ผล"),
         type="primary",
-        key="am_analyze"
-    ):
-        st.caption("Enter measurements and click Analyze Results.")
-        return
+        key="am_analyze",
+    )
 
-    measured = {
-        k: v
-        for k, v in concentrations.items()
-        if v is not None
-    }
-
-    if not measured and sediment_cr is None:
-        st.error(
-            "Enter at least one measured metal concentration "
-            "or provide a sediment chromium value."
+    if not analyze:
+        st.caption(
+            tr(
+                "Enter available measurements and select Analyze Results "
+                "to calculate screening indicators.",
+                "กรอกข้อมูลที่มี แล้วกดปุ่มวิเคราะห์ผลเพื่อคำนวณตัวชี้วัดการคัดกรอง",
+            )
         )
         return
 
-    # Screening calculation retained from the original implementation.
-    # Assumed fish consumption rate = 0.0215 kg/day.
-    hq = {
-        metal: concentration * 0.0215
-        / body_weight / RFD[metal]
-        for metal, concentration in measured.items()
+    # --------------------------------------------------------
+    # Validate inputs
+    # --------------------------------------------------------
+    measured = {
+        "Cr": cr,
+        "Pb": pb,
+        "Ni": ni,
+        "Cd": cd,
     }
+
+    measured = {
+        metal: value
+        for metal, value in measured.items()
+        if value is not None
+    }
+
+    has_sediment = sediment_cr is not None
+
+    if not measured and not has_sediment:
+        st.error(
+            tr(
+                "No data entered. Enter at least one measured metal "
+                "concentration or a sediment chromium concentration.",
+                "ยังไม่มีข้อมูล โปรดกรอกความเข้มข้นโลหะหนักอย่างน้อยหนึ่งรายการ "
+                "หรือกรอกความเข้มข้นโครเมียมในตะกอน",
+            )
+        )
+        return
+
+    if body_weight <= 0:
+        st.error(
+            tr(
+                "Body weight must be greater than zero.",
+                "น้ำหนักตัวต้องมากกว่าศูนย์",
+            )
+        )
+        return
+
+    # --------------------------------------------------------
+    # Calculate HQ and HI
+    # --------------------------------------------------------
+    hq = {}
+
+    for metal, concentration in measured.items():
+        hq[metal] = (
+            concentration
+            * FISH_CONSUMPTION_RATE
+            / body_weight
+            / RFD[metal]
+        )
 
     hi = sum(hq.values()) if hq else None
 
-    # 3. Screening summary
-    st.divider()
-    st.markdown("### 3. Screening Summary")
-
-    m1, m2, m3 = st.columns(3)
-
-    m1.metric(
-        "Metals with Measurements",
-        f"{len(measured)}/4"
+    # --------------------------------------------------------
+    # Section 3: Screening summary
+    # --------------------------------------------------------
+    st.header(
+        tr("3. Screening Summary", "3. สรุปผลการคัดกรอง")
     )
 
-    m2.metric(
-        "Hazard Index (HI)",
-        f"{hi:.4f}" if hi is not None else "No data"
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        tr("Metals with measurements", "จำนวนโลหะที่มีผลตรวจวัด"),
+        f"{len(measured)}",
     )
 
-    m3.metric(
-        "Number of HQ Values Above 1",
-        str(sum(value > 1 for value in hq.values()))
-        if hq else "No data"
+    c2.metric(
+        tr("Hazard Index (HI)", "ดัชนีความเป็นอันตราย (HI)"),
+        f"{hi:.4f}" if hi is not None else "N/A",
     )
 
-    if hi is not None:
-        if hi > 1:
-            st.warning(
-                "The calculated HI exceeds 1 under the assumptions "
-                "used. Further assessment by a qualified risk "
-                "assessment professional is recommended."
+    above_one = sum(value > 1 for value in hq.values())
+
+    c3.metric(
+        tr("HQ values above 1", "จำนวนค่า HQ ที่มากกว่า 1"),
+        f"{above_one}",
+    )
+
+    if hi is not None and hi > 1:
+        st.warning(
+            tr(
+                "The calculated HI exceeds 1 under the selected assumptions. "
+                "This is a screening signal, not proof of harm. Seek a "
+                "qualified exposure and toxicological risk assessment.",
+                "ค่า HI ที่คำนวณได้มากกว่า 1 ภายใต้สมมติฐานที่เลือก "
+                "เป็นสัญญาณสำหรับการคัดกรอง ไม่ใช่หลักฐานยืนยันว่าจะเกิดอันตราย "
+                "ควรให้ผู้เชี่ยวชาญประเมินการรับสัมผัสและความเสี่ยงทางพิษวิทยา",
             )
-        else:
-            st.info(
-                "The calculated HI is at or below 1 for the metals "
-                "measured. This does not establish that the fish is "
-                "safe to consume and does not account for metals "
-                "with missing measurements."
+        )
+    elif hi is not None:
+        st.info(
+            tr(
+                "The calculated HI is at or below 1 under the selected "
+                "assumptions. This does not establish that the fish is safe. "
+                "The result depends on the assumed exposure rate, reference "
+                "doses, and the metals measured.",
+                "ค่า HI ที่คำนวณได้ไม่เกิน 1 ภายใต้สมมติฐานที่เลือก "
+                "แต่ไม่ได้ยืนยันว่าปลอดภัย ผลขึ้นอยู่กับอัตราการรับสัมผัส "
+                "ค่าอ้างอิงความเป็นพิษ และชนิดโลหะที่ตรวจวัด",
             )
+        )
 
-    # 4. Concentration chart
+    if not measured:
+        st.info(
+            tr(
+                "No fish-muscle metal concentrations were provided. "
+                "HQ and HI were not calculated.",
+                "ไม่มีข้อมูลความเข้มข้นโลหะหนักในกล้ามเนื้อปลา "
+                "จึงไม่ได้คำนวณ HQ และ HI",
+            )
+        )
+
+    # --------------------------------------------------------
+    # Section 4: Concentration chart
+    # --------------------------------------------------------
     if measured:
-        st.markdown("### 4. Heavy Metal Concentrations")
+        st.header(
+            tr(
+                "4. Heavy Metal Concentrations",
+                "4. ความเข้มข้นโลหะหนัก",
+            )
+        )
 
-        concentration_df = pd.DataFrame({
-            "Metal": [
-                METALS[metal] for metal in measured.keys()
-            ],
-            "Concentration (mg/kg)": list(measured.values())
-        })
+        concentration_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal_label(metal),
+                    "Concentration (mg/kg)": float(value),
+                }
+                for metal, value in measured.items()
+            ]
+        )
 
-        fig1 = px.bar(
+        fig_conc = px.bar(
             concentration_df,
             x="Metal",
             y="Concentration (mg/kg)",
-            color="Metal",
-            title="Heavy Metal Concentrations in Fish Muscle"
+            title=tr(
+                "Measured concentrations in fish muscle",
+                "ความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
+            text_auto=".4f",
+        )
+
+        fig_conc.update_layout(
+            xaxis_title=tr("Metal", "โลหะ"),
+            yaxis_title=tr("Concentration (mg/kg)", "ความเข้มข้น (mg/kg)"),
         )
 
         st.plotly_chart(
-            fig1,
-            use_container_width=True
+            fig_conc,
+            use_container_width=True,
         )
 
-        # 5. HQ chart
-        st.markdown("### 5. Hazard Quotient (HQ)")
+        # ----------------------------------------------------
+        # Section 5: HQ chart and results table
+        # ----------------------------------------------------
+        st.header(
+            tr(
+                "5. Hazard Quotient (HQ)",
+                "5. ค่าดัชนีอันตรายรายสาร (HQ)",
+            )
+        )
 
-        hq_df = pd.DataFrame({
-            "Metal": [
-                METALS[metal] for metal in hq.keys()
-            ],
-            "HQ": list(hq.values())
-        })
+        hq_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal_label(metal),
+                    "HQ": float(value),
+                }
+                for metal, value in hq.items()
+            ]
+        )
 
-        fig2 = px.bar(
+        fig_hq = px.bar(
             hq_df,
             x="Metal",
             y="HQ",
-            color="Metal",
-            title="Hazard Quotient by Metal"
+            title=tr(
+                "Screening Hazard Quotient by metal",
+                "ค่า HQ สำหรับการคัดกรองแยกตามโลหะ",
+            ),
+            text_auto=".4f",
         )
 
-        fig2.add_hline(
+        fig_hq.add_hline(
             y=1,
             line_dash="dash",
-            line_color="red",
-            annotation_text="HQ = 1"
+            annotation_text="HQ = 1",
+        )
+
+        fig_hq.update_layout(
+            xaxis_title=tr("Metal", "โลหะ"),
+            yaxis_title="HQ",
         )
 
         st.plotly_chart(
-            fig2,
-            use_container_width=True
+            fig_hq,
+            use_container_width=True,
         )
 
-        results_df = pd.DataFrame([
-            {
-                "Metal": METALS[metal],
-                "Concentration (mg/kg)": measured[metal],
-                "Assumed RfD": RFD[metal],
-                "HQ": hq[metal],
-            }
-            for metal in measured
-        ])
+        results_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal,
+                    "Concentration (mg/kg)": float(measured[metal]),
+                    "Assumed RfD": float(RFD[metal]),
+                    "HQ": float(hq[metal]),
+                }
+                for metal in measured
+            ]
+        )
 
-        st.markdown("#### Screening Results by Metal")
+        st.subheader(
+            tr("Screening results table", "ตารางผลการคัดกรอง")
+        )
+
+        display_df = results_df.copy()
+
+        display_df["Metal"] = display_df["Metal"].map(metal_label)
 
         st.dataframe(
-            results_df,
+            display_df.style.format(
+                {
+                    "Concentration (mg/kg)": "{:.4f}",
+                    "Assumed RfD": "{:.4f}",
+                    "HQ": "{:.4f}",
+                }
+            ),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
-    # 6. Sediment scenario
-    scenario_df = None
+    # --------------------------------------------------------
+    # Section 6: Sediment scenario analysis
+    # --------------------------------------------------------
+    sediment_scenarios_df = None
 
-    if sediment_cr is not None:
-        st.markdown("### 6. Sediment Chromium Scenario Analysis")
+    if has_sediment:
+        st.header(
+            tr(
+                "6. Sediment Chromium Scenario Analysis",
+                "6. การวิเคราะห์สถานการณ์โครเมียมในตะกอน",
+            )
+        )
 
-        st.caption(
-            "These curves represent hypothetical scenarios, not "
-            "forecasts. The parameters have not been calibrated "
-            "against site-specific monitoring data."
+        st.write(
+            tr(
+                "The following scenarios are hypothetical illustrations. "
+                "Their input and decay parameters are assumptions and should "
+                "not be interpreted as site-calibrated forecasts.",
+                "สถานการณ์ต่อไปนี้เป็นตัวอย่างสมมติ พารามิเตอร์อัตราการเพิ่ม "
+                "และการสลายตัวเป็นสมมติฐาน ไม่ใช่การพยากรณ์ที่ปรับเทียบ "
+                "กับพื้นที่จริง",
+            )
         )
 
         scenarios = [
-            ("A - No Intervention", 1.715, 0.05),
-            ("B - Source Reduction", 1.715 * 0.85, 0.07),
-            ("C - Intensive Control", 0.0, 0.10),
+            (
+                "A - No Intervention",
+                tr("A - No Intervention", "A - ไม่ดำเนินมาตรการ"),
+                float(sediment_cr),
+                0.05,
+            ),
+            (
+                "B - Source Reduction",
+                tr("B - Source Reduction", "B - ลดแหล่งกำเนิด"),
+                float(sediment_cr) * 0.85,
+                0.07,
+            ),
+            (
+                "C - Intensive Control",
+                tr("C - Intensive Control", "C - ควบคุมเข้มข้น"),
+                0.0,
+                0.10,
+            ),
         ]
 
-        rows = []
+        scenario_records = []
 
-        for name, input_rate, decay in scenarios:
+        for scenario_id, scenario_name, input_rate, decay in scenarios:
             values = sediment_model(
-                sediment_cr,
-                horizon,
-                input_rate,
-                decay
+                initial=float(sediment_cr),
+                years=int(horizon),
+                input_rate=input_rate,
+                decay=decay,
             )
 
-            for year, value in enumerate(values):
-                rows.append({
-                    "Year": year,
-                    "Scenario": name,
-                    "Sediment Cr (mg/kg)": value
-                })
+            for year, concentration in enumerate(values):
+                scenario_records.append(
+                    {
+                        "Scenario": scenario_name,
+                        "Year": year,
+                        "Sediment chromium (mg/kg)": concentration,
+                    }
+                )
 
-        scenario_df = pd.DataFrame(rows)
+        sediment_scenarios_df = pd.DataFrame(scenario_records)
 
-        fig3 = px.line(
-            scenario_df,
+        fig_sediment = px.line(
+            sediment_scenarios_df,
             x="Year",
-            y="Sediment Cr (mg/kg)",
+            y="Sediment chromium (mg/kg)",
             color="Scenario",
             markers=True,
-            title="Projected Sediment Chromium Under Illustrative Scenarios"
+            title=tr(
+                "Illustrative sediment chromium scenarios",
+                "สถานการณ์โครเมียมในตะกอนโดยประมาณ",
+            ),
+        )
+
+        fig_sediment.update_layout(
+            xaxis_title=tr("Year", "ปี"),
+            yaxis_title=tr(
+                "Sediment chromium (mg/kg)",
+                "โครเมียมในตะกอน (mg/kg)",
+            ),
         )
 
         st.plotly_chart(
-            fig3,
-            use_container_width=True
+            fig_sediment,
+            use_container_width=True,
         )
 
-        final_df = (
-            scenario_df[
-                scenario_df["Year"] == horizon
-            ]
-            .sort_values("Scenario")
-        )
+        final_year_df = sediment_scenarios_df[
+            sediment_scenarios_df["Year"] == int(horizon)
+        ].copy()
 
-        st.markdown(
-            f"**Simulated Values at the End of Year {horizon}**"
+        st.subheader(
+            tr(
+                f"Scenario summary at year {horizon}",
+                f"สรุปสถานการณ์ในปีที่ {horizon}",
+            )
         )
 
         st.dataframe(
-            final_df,
+            final_year_df.style.format(
+                {
+                    "Sediment chromium (mg/kg)": "{:.4f}",
+                }
+            ),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
-    # 7. Export results
-    st.markdown("### 7. Export Results")
+    # --------------------------------------------------------
+    # Section 7: CSV export
+    # --------------------------------------------------------
+    st.header(
+        tr("7. Export Results", "7. ส่งออกผลลัพธ์")
+    )
 
-    export_rows = [
-        {
-            "Item": f"Concentration_{metal}",
-            "Value": value,
-            "Unit": "mg/kg wet weight"
-        }
-        for metal, value in measured.items()
-    ]
+    export_rows = []
 
-    export_rows += [
-        {
-            "Item": f"HQ_{metal}",
-            "Value": value,
-            "Unit": "dimensionless"
-        }
-        for metal, value in hq.items()
-    ]
-
-    export_rows.append({
-        "Item": "HI",
-        "Value": hi if hi is not None else "",
-        "Unit": "dimensionless"
-    })
-
-    if scenario_df is not None:
-        for _, row in scenario_df.iterrows():
-            export_rows.append({
-                "Item": (
-                    f"Sediment_Cr_Year_{row['Year']}_"
-                    f"{row['Scenario']}"
+    for metal in measured:
+        export_rows.append(
+            {
+                "Record type": "Fish muscle concentration",
+                "Metal": metal,
+                "Concentration (mg/kg)": float(measured[metal]),
+                "Assumed RfD": float(RFD[metal]),
+                "HQ": float(hq[metal]),
+                "HI": float(hi) if hi is not None else np.nan,
+                "Body weight (kg)": float(body_weight),
+                "Assumed fish consumption (kg/day)": float(
+                    FISH_CONSUMPTION_RATE
                 ),
-                "Value": row["Sediment Cr (mg/kg)"],
-                "Unit": "mg/kg"
-            })
+                "Sediment scenario": "",
+                "Year": np.nan,
+                "Sediment chromium (mg/kg)": np.nan,
+            }
+        )
+
+    if has_sediment and sediment_scenarios_df is not None:
+        for _, row in sediment_scenarios_df.iterrows():
+            export_rows.append(
+                {
+                    "Record type": "Sediment scenario",
+                    "Metal": "Cr",
+                    "Concentration (mg/kg)": np.nan,
+                    "Assumed RfD": np.nan,
+                    "HQ": np.nan,
+                    "HI": np.nan,
+                    "Body weight (kg)": float(body_weight),
+                    "Assumed fish consumption (kg/day)": float(
+                        FISH_CONSUMPTION_RATE
+                    ),
+                    "Sediment scenario": row["Scenario"],
+                    "Year": int(row["Year"]),
+                    "Sediment chromium (mg/kg)": float(
+                        row["Sediment chromium (mg/kg)"]
+                    ),
+                }
+            )
+
+    if not export_rows:
+        export_rows.append(
+            {
+                "Record type": "Summary",
+                "Metal": "",
+                "Concentration (mg/kg)": np.nan,
+                "Assumed RfD": np.nan,
+                "HQ": np.nan,
+                "HI": float(hi) if hi is not None else np.nan,
+                "Body weight (kg)": float(body_weight),
+                "Assumed fish consumption (kg/day)": float(
+                    FISH_CONSUMPTION_RATE
+                ),
+                "Sediment scenario": "",
+                "Year": np.nan,
+                "Sediment chromium (mg/kg)": np.nan,
+            }
+        )
 
     export_df = pd.DataFrame(export_rows)
 
     st.download_button(
-        "Download Results (CSV)",
-        data=export_df.to_csv(
-            index=False
-        ).encode("utf-8-sig"),
+        label=tr(
+            "Download Results (CSV)",
+            "ดาวน์โหลดผลลัพธ์ (CSV)",
+        ),
+        data=export_df.to_csv(index=False).encode("utf-8-sig"),
         file_name="AquaMonitor_results.csv",
         mime="text/csv",
-        key="am_download"
+        key="am_download",
     )
 
-    # Limitations
+    # --------------------------------------------------------
+    # Important limitations
+    # --------------------------------------------------------
+    st.divider()
+
+    st.subheader(
+        tr("Important limitations", "ข้อจำกัดสำคัญ")
+    )
+
     st.warning(
-        "Limitations: HQ and HI depend on the assumed exposure rate, "
-        "body weight, reference doses, and calculation method. The "
-        "current calculation should be independently reviewed for "
-        "dimensional consistency and toxicological validity before "
-        "interpretation. Total chromium measurements cannot distinguish "
-        "Cr(VI) from other chromium species. This prototype is not a "
-        "validated risk assessment and does not replace applicable "
-        "government standards or expert advice."
+        tr(
+            "HQ and HI depend on the assumed exposure rate, body weight, "
+            "reference doses, units, and calculation method. These "
+            "assumptions require independent toxicological review. Total "
+            "chromium measurements do not distinguish Cr(VI) from other "
+            "chromium species. The sediment model is hypothetical and "
+            "has not been validated for a specific site. This prototype "
+            "does not replace applicable government standards, laboratory "
+            "quality assurance, or professional risk assessment.",
+            "ค่า HQ และ HI ขึ้นอยู่กับอัตราการรับสัมผัส น้ำหนักตัว "
+            "ค่าอ้างอิงความเป็นพิษ หน่วย และวิธีคำนวณ ซึ่งควรได้รับการทบทวน "
+            "โดยผู้เชี่ยวชาญด้านพิษวิทยา การตรวจวัดโครเมียมรวมไม่สามารถแยก "
+            "Cr(VI) ออกจากรูปแบบอื่นของโครเมียมได้ แบบจำลองตะกอนเป็นสถานการณ์สมมติ "
+            "และยังไม่ได้รับการตรวจสอบสำหรับพื้นที่เฉพาะ เครื่องมือต้นแบบนี้ "
+            "ไม่สามารถใช้แทนมาตรฐานภาครัฐ การประกันคุณภาพห้องปฏิบัติการ "
+            "หรือการประเมินความเสี่ยงโดยผู้เชี่ยวชาญได้",
+        )
+    )
+
+    st.caption(
+        tr(
+            "AquaMonitor | Preliminary screening and scenario exploration only.",
+            "AquaMonitor | ใช้สำหรับการคัดกรองเบื้องต้นและสำรวจสถานการณ์เท่านั้น",
+        )
     )
