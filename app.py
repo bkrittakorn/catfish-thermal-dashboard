@@ -327,21 +327,6 @@ elif page == "Climate Simulation":
         "not calibrated local climate forecasts."
     )
 
-    # Parameters from Supplementary File S1
-    TMEAN = 28.5
-    AMP0 = 3.5
-    DPEAK = 115
-    ALPHA = 0.08
-    BETA = 0.03
-    E_SD = 0.30
-    TOPT = 29.0
-    SIGMA = 1.0
-    SMAX = 44.9
-    TCRIT0 = 30.75
-    DELTA_G = 0.15
-    SEED = 20260929
-    N_MONTE_CARLO = 10000
-
     # Scenario controls
     c1, c2 = st.columns(2)
     with c1:
@@ -373,10 +358,8 @@ elif page == "Climate Simulation":
 
     # Panel A: seasonal cycle for a representative year
     day = np.arange(1, 366)
-    temp_day = (
-        TMEAN
-        + AMP0 * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
-    )
+    temp_day = seasonal_temperature(day, 0)
+    
     survival_pct = SMAX * np.exp(
         -0.5 * ((temp_day - TOPT) / SIGMA) ** 2
     )
@@ -422,12 +405,7 @@ elif page == "Climate Simulation":
     yindex = np.minimum(np.arange(n_days) // 365, len(years) - 1)
     doy = (np.arange(n_days) % 365) + 1
 
-    base_temp = (
-        TMEAN
-        + ALPHA * yindex
-        + (AMP0 + BETA * yindex)
-        * np.cos(2 * np.pi * (doy - DPEAK) / 365.0)
-    )
+    base_temp = seasonal_temperature(doy, yindex)
 
     # One random anomaly per year and simulation, shared across that year's days
     rng = np.random.default_rng(int(seed))
