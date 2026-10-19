@@ -217,31 +217,108 @@ if page == "Overview":
     )
 
 
+
 elif page == "Hatchery Calculator":
     st.subheader("Hatchery Calculator")
-    temp = st.slider("Water temperature (°C)", 25.0, 36.0, 29.0, 0.5)
+    st.caption(
+        "Estimate hatchery output and illustrative economics "
+        "under a selected water-temperature scenario."
+    )
+
+    temp = st.slider(
+        "Water temperature (°C)",
+        min_value=25.0,
+        max_value=36.0,
+        value=29.0,
+        step=0.5
+    )
+
     fert, hatch, survival = biological_rates(temp)
 
+    # Biological calculations
     fertilized = eggs * fert
     hatched = fertilized * hatch
     survivors = hatched * survival
+
+    # Economic calculations
     revenue = survivors * fry_price
     total_cost = base_cost + cooling_cost
+    net_result = revenue - total_cost
+
+    st.markdown("### 1. Biological estimates")
+
+    a, b, c = st.columns(3)
+    a.metric("Fertilization rate", f"{fert:.1%}")
+    b.metric("Hatching rate", f"{hatch:.1%}")
+    c.metric("Survival to 72 h", f"{survival:.1%}")
+
+    st.markdown("### 2. Estimated production")
 
     results = pd.DataFrame({
-        "Stage": ["Initial eggs", "Estimated fertilized", "Estimated hatched",
-                  "Estimated survivors"],
-        "Count": [eggs, fertilized, hatched, survivors]
+        "Production stage": [
+            "Initial eggs",
+            "Estimated fertilized eggs",
+            "Estimated hatched larvae",
+            "Estimated survivors at 72 h"
+        ],
+        "Estimated count": [
+            eggs,
+            fertilized,
+            hatched,
+            survivors
+        ]
     })
+
     st.plotly_chart(
-        px.bar(results, x="Stage", y="Count", text_auto=".3s"),
+        px.bar(
+            results,
+            x="Production stage",
+            y="Estimated count",
+            text_auto=".3s",
+            title="Estimated production at each stage"
+        ),
         use_container_width=True
     )
 
+    st.dataframe(
+        results.style.format({
+            "Estimated count": "{:,.0f}"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.markdown("### 3. Illustrative economic results")
+
     x, y, z = st.columns(3)
-    x.metric("Estimated revenue", f"฿{revenue:,.0f}")
-    y.metric("Total costs", f"฿{total_cost:,.0f}")
-    z.metric("Illustrative net result", f"฿{revenue - total_cost:,.0f}")
+    x.metric("Estimated revenue", f"฿{revenue:,.2f}")
+    y.metric("Total specified costs", f"฿{total_cost:,.2f}")
+    z.metric("Illustrative net result", f"฿{net_result:,.2f}")
+
+    with st.expander("View calculation assumptions"):
+        st.write(f"Water temperature: {temp:.1f} °C")
+        st.write(f"Initial egg count: {eggs:,.0f}")
+        st.write(f"Price per fry: ฿{fry_price:,.2f}")
+        st.write(f"Operating cost: ฿{base_cost:,.2f}")
+        st.write(f"Cooling cost: ฿{cooling_cost:,.2f}")
+
+        st.latex(
+            r"N_{\mathrm{survivors}}"
+            r"=N_0\times F\times H\times S_{72}"
+        )
+
+        st.latex(
+            r"\mathrm{Net\ result}"
+            r"=\mathrm{Revenue}-\mathrm{Total\ costs}"
+        )
+
+    st.warning(
+        "These are illustrative estimates. Biological rates are based on "
+        "observations at 29°C and 32°C, with linear interpolation between "
+        "them and endpoint values held outside that range. Actual production "
+        "may differ. Total costs include only the operating and cooling costs "
+        "entered in the dashboard."
+    )
 
 elif page == "Climate Simulation":
     st.subheader("Climate Simulation")
