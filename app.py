@@ -619,27 +619,132 @@ elif page == "Sensitivity Analysis":
         "or proof of causal effects."
     )
 
+
 elif page == "Methods":
-    st.subheader("Methods and limitations")
-    st.markdown("""
-    **Reference observations**
+    st.subheader("Methods, data sources and limitations")
 
-    - At 29°C: fertilization 67.7%, hatching 43.4%, survival to 72 h 44.9%.
-    - At 32°C: fertilization 59.0%, hatching 26.6%, survival to 72 h 0%.
+    st.markdown("### 1. Reference biological observations")
+    st.write(
+        "The prototype uses the two temperature-specific observations "
+        "provided in the source study."
+    )
 
-    **Current prototype**
+    reference_df = pd.DataFrame({
+        "Temperature (°C)": [29, 32],
+        "Fertilization rate": [0.677, 0.590],
+        "Hatching rate": [0.434, 0.266],
+        "Survival to 72 h": [0.449, 0.000]
+    })
 
-    - Uses linear interpolation between the two observed temperatures.
-    - Holds rates constant outside the observed temperature interval.
-    - Uses hypothetical warming and normally distributed temperature anomalies
-      in the Monte Carlo exploration.
-    - Calculates survivors as initial eggs × fertilization rate × hatching rate
-      × survival rate.
+    st.dataframe(
+        reference_df.style.format({
+            "Fertilization rate": "{:.1%}",
+            "Hatching rate": "{:.1%}",
+            "Survival to 72 h": "{:.1%}"
+        }),
+        use_container_width=True
+    )
 
-    **Not yet implemented**
+    st.caption(
+        "Source-study values reproduced in Supplementary File S1. "
+        "The two temperature observations do not establish a complete "
+        "biological response curve."
+    )
 
-    - The original seasonal temperature cycle and Q10 assumptions.
-    - Calibrated local climate projections.
-    - Confidence intervals fitted to experimental biological data.
-    - Independent validation of the biological and economic model.
-    """)
+    st.markdown("### 2. Hatchery calculation")
+    st.latex(
+        r"N_{\mathrm{survivors}} = N_0 "
+        r"\times F \times H \times S_{72}"
+    )
+    st.write(
+        "Estimated survivors are calculated by multiplying the initial "
+        "egg count by fertilization, hatching and 72-hour survival rates. "
+        "Illustrative revenue is estimated survivors multiplied by the "
+        "user-entered price per fry. The net result subtracts the specified "
+        "operating and cooling costs."
+    )
+
+    st.markdown("### 3. Biological-rate approximation")
+    st.write(
+        "For the Overview, Hatchery Calculator and Sensitivity Analysis "
+        "pages, the prototype linearly interpolates between the observed "
+        "rates at 29°C and 32°C. Outside that interval, rates are held at "
+        "the nearest endpoint. This is a simplifying approximation, not a "
+        "validated biological response model."
+    )
+
+    st.markdown("### 4. Seasonal and multiyear climate scenario")
+    st.latex(
+        r"T(d,y)=T_{\mathrm{mean}}+\alpha y+"
+        r"(A_0+\beta y)\cos\left(\frac{2\pi(d-D_{\mathrm{peak}})}{365}\right)"
+    )
+    st.write(
+        "The Climate Simulation page uses the illustrative seasonal and "
+        "multiyear scenario parameters from Supplementary File S1: mean "
+        "temperature 28.5°C, initial seasonal amplitude 3.5°C, peak day 115, "
+        "mean warming parameter 0.08°C/year, and amplitude-change parameter "
+        "0.03°C/year."
+    )
+
+    st.markdown("### 5. Seasonal survival illustration")
+    st.latex(
+        r"S(T)=S_{\max}\exp\left[-\frac{1}{2}"
+        r"\left(\frac{T-T_{\mathrm{opt}}}{\sigma}\right)^2\right]"
+    )
+    st.write(
+        "The seasonal survival curve uses the illustrative Gaussian equation "
+        "in Supplementary File S1, with Smax = 44.9%, Topt = 29°C and "
+        "sigma = 1°C. This curve is displayed separately from the observed "
+        "fertilization and hatching rates; it is not a validated prediction "
+        "of farm-level survival."
+    )
+
+    st.markdown("### 6. Monte Carlo uncertainty")
+    st.write(
+        "The multiyear climate scenario uses 10,000 simulations. Each "
+        "simulated year receives one normally distributed temperature "
+        "anomaly shared by all days in that year. The default anomaly "
+        "standard deviation is 0.30°C. The displayed 95% simulation interval "
+        "is based on the 2.5th and 97.5th percentiles of simulated annual "
+        "anomalies."
+    )
+
+    st.markdown("### 7. Threshold scenario")
+    st.latex(
+        r"T_{\mathrm{crit}}(y)=T_{\mathrm{crit},0}"
+        r"+\Delta_g(y-2026)"
+    )
+    st.write(
+        "The changing threshold is a hypothetical sensitivity line starting "
+        "at 30.75°C in 2026. Its annual change is user-adjustable within "
+        "the interface. It must not be interpreted as a measured genetic "
+        "adaptation rate or a demonstrated evolutionary outcome."
+    )
+
+    st.markdown("### 8. Sensitivity Analysis")
+    st.write(
+        "Sensitivity Analysis varies temperature while holding egg number, "
+        "price and selected costs fixed. Cooling cost can be included as a "
+        "fixed expense, but the model does not simulate cooling-system "
+        "performance, energy consumption or the resulting change in water "
+        "temperature."
+    )
+
+    st.markdown("### 9. Limitations")
+    st.warning(
+        "This dashboard is an exploratory scenario tool. It is not a "
+        "calibrated local climate forecast, a validated farm-production "
+        "model, or an experimentally fitted biological response model. "
+        "Only two source-study temperature observations are used for the "
+        "fertilization, hatching and 72-hour survival calculations. "
+        "Economic outputs depend on user-entered assumptions. Independent "
+        "validation and additional experimental and local climate data are "
+        "required before operational or policy decisions are based on these results."
+    )
+
+    st.markdown("### 10. Reproducibility")
+    st.write(
+        "The climate scenario uses a configurable random seed, with "
+        "20260929 as the default, and 10,000 Monte Carlo simulations. "
+        "Downloaded CSV files contain scenario outputs for further inspection."
+    )
