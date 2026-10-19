@@ -6,1563 +6,844 @@ import plotly.express as px
 
 
 # ============================================================
-# 1. PAGE CONFIGURATION
+# 1. LANGUAGE SUPPORT
 # ============================================================
-st.set_page_config(
-    page_title="Catfish Thermal Risk Dashboard",
-    page_icon="🐟",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-
-# ============================================================
-# 2. BILINGUAL LANGUAGE SYSTEM
-# ============================================================
-if "language" not in st.session_state:
-    st.session_state["language"] = "English"
-
-# ใช้ตัวเลือกภาษาเพียงจุดเดียวทั้งแอป
-st.sidebar.radio(
-    "Language / ภาษา",
-    options=["English", "ไทย"],
-    key="language",
-)
 
 def tr(en, th):
-    """Return text according to the selected language."""
-    if st.session_state.get("language", "English") == "ไทย":
-        return th
-    return en
+    """Use the language selected in app.py."""
+    language = st.session_state.get("language", "English")
+    return th if language == "ไทย" else en
+
+
+def metal_label(metal):
+    """Return the metal label in the selected language."""
+    labels_en = {
+        "Cr": "Total Chromium (Cr)",
+        "Pb": "Lead (Pb)",
+        "Ni": "Nickel (Ni)",
+        "Cd": "Cadmium (Cd)",
+    }
+
+    labels_th = {
+        "Cr": "โครเมียมรวม (Cr)",
+        "Pb": "ตะกั่ว (Pb)",
+        "Ni": "นิกเกิล (Ni)",
+        "Cd": "แคดเมียม (Cd)",
+    }
+
+    language = st.session_state.get("language", "English")
+
+    if language == "ไทย":
+        return labels_th.get(metal, metal)
+
+    return labels_en.get(metal, metal)
 
 
 # ============================================================
-# 3. STYLING
+# 2. MODEL PARAMETERS
 # ============================================================
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #F4F8FA;
-    }
 
-    [data-testid="stSidebar"] {
-        background-color: #E8F1F4;
-    }
-
-    h1, h2, h3 {
-        color: #163A4A;
-    }
-
-    [data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #D9E5EA;
-        border-radius: 12px;
-        padding: 14px;
-    }
-
-    div[data-testid="stAlert"] {
-        border-radius: 10px;
-    }
-
-    .dashboard-caption {
-        color: #607782;
-        font-size: 0.92rem;
-    }
-
-    hr {
-        border-color: #D9E5EA;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# 4. REFERENCE DATA
-# ============================================================
-REFERENCE = {
-    "Temperature (°C)": [29, 32],
-    "Fertilization rate": [0.677, 0.590],
-    "Hatching rate": [0.434, 0.266],
-    "Survival rate to 72 h": [0.449, 0.0],
+RFD = {
+    "Cr": 0.003,
+    "Pb": 0.0035,
+    "Ni": 0.020,
+    "Cd": 0.001,
 }
 
-
-# ============================================================
-# 5. MODEL PARAMETERS
-# ============================================================
-SEED = 20260929
-N_MONTE_CARLO = 10000
-
-TMEAN = 28.5
-AMP0 = 3.5
-DPEAK = 115
-ALPHA = 0.08
-BETA = 0.03
-E_SD = 0.30
-
-TOPT = 29
-SIGMA = 1
-SMAX = 44.9
-
-TCRIT0 = 30.75
-DELTA_G = 0.15
+FISH_CONSUMPTION_RATE = 0.0215  # kg/day; assumed model input
 
 
 # ============================================================
-# 6. BIOLOGICAL AND CLIMATE FUNCTIONS
+# 3. SEDIMENT MODEL
 # ============================================================
-def biological_rates(temp):
+
+def sediment_model(initial, years, input_rate, decay):
     """
-    Estimate biological rates using linear interpolation
-    between the two available reference temperatures.
-    Values outside the reference interval use endpoint rates.
+    Illustrative sediment concentration model.
+
+    This model is hypothetical and is not a site-calibrated forecast.
+    Concentrations and rates must be validated before real-world use.
     """
-    temperatures = np.array(REFERENCE["Temperature (°C)"])
+    results = []
 
-    rates = {}
-
-    for name in [
-        "Fertilization rate",
-        "Hatching rate",
-        "Survival rate to 72 h",
-    ]:
-        observed = np.array(REFERENCE[name])
-
-        rates[name] = float(
-            np.interp(temp, temperatures, observed)
-        )
-
-    return rates
-
-
-def seasonal_temperature(day, year_index=0):
-    """
-    Illustrative seasonal temperature model.
-
-    day: day of year, 1-365
-    year_index: number of years after the baseline year
-    """
-    day = np.asarray(day)
-
-    mean_temp = TMEAN + ALPHA * year_index
-
-    amplitude = AMP0 * np.exp(-BETA * year_index)
-
-    temperature = (
-        mean_temp
-        + amplitude
-        * np.sin(2 * np.pi * (day - DPEAK) / 365)
-    )
-
-    return temperature
-
-
-def gaussian_survival(temp, threshold_shift=0.0):
-    """
-    Illustrative temperature-dependent survival curve.
-
-    This curve is a scenario assumption, not a calibrated
-    biological prediction.
-    """
-    threshold = TCRIT0 + threshold_shift
-
-    survival = SMAX * np.exp(
-        -0.5 * ((np.asarray(temp) - TOPT) / SIGMA) ** 2
-    )
-
-    # Illustrative high-temperature stress penalty
-    penalty = np.exp(
-        -np.maximum(np.asarray(temp) - threshold, 0) ** 2
-        / (2 * SIGMA ** 2)
-    )
-
-    return survival * penalty
-
-
-def calculate_hatchery(temp, eggs, fry_price, base_cost, cooling_cost):
-    """Calculate hatchery production and illustrative economics."""
-    rates = biological_rates(temp)
-
-    fertilized = eggs * rates["Fertilization rate"]
-
-    hatched = fertilized * rates["Hatching rate"]
-
-    survivors = hatched * rates["Survival rate to 72 h"]
-
-    revenue = survivors * fry_price
-
-    total_cost = base_cost + cooling_cost
-
-    net_result = revenue - total_cost
-
-    return {
-        "temperature": float(temp),
-        "fertilization_rate": rates["Fertilization rate"],
-        "hatching_rate": rates["Hatching rate"],
-        "survival_rate": rates["Survival rate to 72 h"],
-        "fertilized_eggs": fertilized,
-        "hatched_larvae": hatched,
-        "survivors": survivors,
-        "revenue": revenue,
-        "base_cost": base_cost,
-        "cooling_cost": cooling_cost,
-        "total_cost": total_cost,
-        "net_result": net_result,
-    }
-
-
-# ============================================================
-# 7. SIDEBAR: LANGUAGE, NAVIGATION AND ASSUMPTIONS
-# ============================================================
-st.sidebar.markdown("### 🌐 Language / ภาษา")
-
-st.sidebar.radio(
-    "Select language / เลือกภาษา",
-    options=["English", "ไทย"],
-    horizontal=True,
-    key="language",
-    label_visibility="collapsed",
-)
-
-language = st.session_state["language"]
-is_thai = language == "ไทย"
-
-PAGE_LABELS = {
-    "Overview": ("Overview", "ภาพรวม"),
-    "Hatchery Calculator": (
-        "Hatchery Calculator",
-        "เครื่องคำนวณโรงเพาะฟัก",
-    ),
-    "Climate Simulation": (
-        "Climate Simulation",
-        "จำลองสภาพภูมิอากาศ",
-    ),
-    "Sensitivity Analysis": (
-        "Sensitivity Analysis",
-        "วิเคราะห์ความอ่อนไหว",
-    ),
-    "AquaMonitor": (
-        "AquaMonitor",
-        "วิเคราะห์คุณภาพน้ำ",
-    ),
-    "Methods": (
-        "Methods & Limitations",
-        "วิธีการและข้อจำกัด",
-    ),
-}
-
-st.sidebar.divider()
-st.sidebar.header(tr("Dashboard navigation", "เมนูหลัก"))
-
-page = st.sidebar.radio(
-    tr("Choose a page", "เลือกหน้า"),
-    options=list(PAGE_LABELS.keys()),
-    format_func=lambda key: (
-        PAGE_LABELS[key][1]
-        if is_thai
-        else PAGE_LABELS[key][0]
-    ),
-    key="page_navigation",
-)
-
-st.sidebar.divider()
-st.sidebar.header(
-    tr("Hatchery assumptions", "สมมติฐานโรงเพาะฟัก")
-)
-
-eggs = st.sidebar.number_input(
-    tr("Initial eggs", "จำนวนไข่เริ่มต้น"),
-    min_value=1,
-    value=5_000_000,
-    step=100_000,
-    key="assumption_eggs",
-)
-
-fry_price = st.sidebar.number_input(
-    tr("Price per fry (THB)", "ราคาต่อลูกปลา (บาท)"),
-    min_value=0.0,
-    value=1.50,
-    step=0.10,
-    key="assumption_fry_price",
-)
-
-base_cost = st.sidebar.number_input(
-    tr("Base operating cost (THB)", "ต้นทุนดำเนินงานพื้นฐาน (บาท)"),
-    min_value=0.0,
-    value=100_000.0,
-    step=5_000.0,
-    key="assumption_base_cost",
-)
-
-cooling_cost = st.sidebar.number_input(
-    tr("Cooling cost (THB)", "ต้นทุนระบบทำความเย็น (บาท)"),
-    min_value=0.0,
-    value=80_000.0,
-    step=5_000.0,
-    key="assumption_cooling_cost",
-)
-
-st.sidebar.caption(
-    tr(
-        "Economic estimates exclude costs not entered above.",
-        "การประเมินทางเศรษฐศาสตร์ไม่รวมต้นทุนอื่นที่ไม่ได้ระบุไว้ข้างต้น",
-    )
-)
-
-
-# ============================================================
-# 8. HEADER
-# ============================================================
-st.title(
-    tr(
-        "🐟 Catfish Thermal Risk Dashboard",
-        "🐟 แดชบอร์ดความเสี่ยงด้านอุณหภูมิของปลาดุก",
-    )
-)
-
-st.markdown(
-    f'<p class="dashboard-caption">'
-    f'{tr("Biological performance, climate scenarios and hatchery economics",
-          "ประสิทธิภาพทางชีววิทยา สถานการณ์ภูมิอากาศ และเศรษฐศาสตร์โรงเพาะฟัก")}'
-    f'</p>',
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# 9. OVERVIEW
-# ============================================================
-if page == "Overview":
-
-    st.header(tr("Overview", "ภาพรวม"))
-
-    st.write(
-        tr(
-            "Explore how water temperature may affect estimated "
-            "catfish hatchery performance and illustrative financial results.",
-            "สำรวจว่าอุณหภูมิน้ำอาจส่งผลต่อประสิทธิภาพการเพาะฟักปลาดุก "
-            "และผลลัพธ์ทางการเงินโดยประมาณอย่างไร",
-        )
-    )
-
-    temp = st.slider(
-        tr("Water temperature (°C)", "อุณหภูมิน้ำ (°C)"),
-        min_value=25.0,
-        max_value=36.0,
-        value=29.0,
-        step=0.5,
-        key="overview_temperature",
-    )
-
-    result = calculate_hatchery(
-        temp,
-        eggs,
-        fry_price,
-        base_cost,
-        cooling_cost,
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        tr("Fertilization rate", "อัตราการปฏิสนธิ"),
-        f'{result["fertilization_rate"]:.1%}',
-    )
-
-    col2.metric(
-        tr("Hatching rate", "อัตราการฟัก"),
-        f'{result["hatching_rate"]:.1%}',
-    )
-
-    col3.metric(
-        tr("Survival rate to 72 h", "อัตรารอดที่ 72 ชั่วโมง"),
-        f'{result["survival_rate"]:.1%}',
-    )
-
-    col4, col5, col6 = st.columns(3)
-
-    col4.metric(
-        tr("Estimated survivors", "จำนวนที่คาดว่าจะรอด"),
-        f'{result["survivors"]:,.0f}',
-    )
-
-    col5.metric(
-        tr("Estimated revenue", "รายได้โดยประมาณ"),
-        f'฿{result["revenue"]:,.2f}',
-    )
-
-    col6.metric(
-        tr("Illustrative net result", "ผลสุทธิโดยประมาณ"),
-        f'฿{result["net_result"]:,.2f}',
-    )
-
-    st.subheader(
-        tr("Production stages", "ขั้นตอนการผลิต")
-    )
-
-    production_df = pd.DataFrame(
-        {
-            "Stage": [
-                tr("Initial eggs", "ไข่เริ่มต้น"),
-                tr("Fertilized eggs", "ไข่ที่ปฏิสนธิ"),
-                tr("Hatched larvae", "ลูกปลาที่ฟัก"),
-                tr("Survivors at 72 h", "ลูกปลารอดที่ 72 ชั่วโมง"),
-            ],
-            "Number of fish": [
-                eggs,
-                result["fertilized_eggs"],
-                result["hatched_larvae"],
-                result["survivors"],
-            ],
-        }
-    )
-
-    fig = px.bar(
-        production_df,
-        x="Stage",
-        y="Number of fish",
-        title=tr(
-            "Estimated production by stage",
-            "จำนวนปลาโดยประมาณในแต่ละขั้นตอน",
-        ),
-        text_auto=",.0f",
-    )
-
-    fig.update_layout(
-        xaxis_title=tr("Production stage", "ขั้นตอนการผลิต"),
-        yaxis_title=tr("Number of fish", "จำนวนปลา"),
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    with st.expander(
-        tr("View assumptions and formulas", "ดูสมมติฐานและสูตรคำนวณ")
-    ):
-        st.markdown(
-            tr(
-                """
-                - Fertilized eggs = Initial eggs × Fertilization rate
-                - Hatched larvae = Fertilized eggs × Hatching rate
-                - Survivors = Hatched larvae × Survival rate to 72 h
-                - Revenue = Survivors × Price per fry
-                - Total specified costs = Base operating cost + Cooling cost
-                - Net result = Revenue − Total specified costs
-                """,
-                """
-                - ไข่ที่ปฏิสนธิ = จำนวนไข่เริ่มต้น × อัตราการปฏิสนธิ
-                - ลูกปลาที่ฟัก = ไข่ที่ปฏิสนธิ × อัตราการฟัก
-                - ลูกปลารอด = ลูกปลาที่ฟัก × อัตรารอดที่ 72 ชั่วโมง
-                - รายได้ = จำนวนลูกปลารอด × ราคาต่อลูกปลา
-                - ต้นทุนรวมที่ระบุ = ต้นทุนดำเนินงานพื้นฐาน + ต้นทุนทำความเย็น
-                - ผลสุทธิ = รายได้ − ต้นทุนรวมที่ระบุ
-                """,
+    for year in range(years + 1):
+        if decay == 0:
+            concentration = initial + input_rate * year
+        else:
+            concentration = (
+                initial * np.exp(-decay * year)
+                + (input_rate / decay)
+                * (1 - np.exp(-decay * year))
             )
-        )
 
-    st.warning(
-        tr(
-            "Only two reference temperatures (29°C and 32°C) are available. "
-            "Linear interpolation is used between these values and endpoint "
-            "rates are used outside this interval. Results are estimates, "
-            "not validated predictions. The economic model excludes costs "
-            "not entered in the sidebar.",
-            "มีข้อมูลอ้างอิงเพียงสองอุณหภูมิ คือ 29°C และ 32°C "
-            "จึงใช้การประมาณค่าเชิงเส้นระหว่างสองจุด และใช้ค่าอัตราที่ปลายช่วง "
-            "เมื่ออุณหภูมิอยู่นอกช่วงดังกล่าว ผลลัพธ์เป็นค่าประมาณ "
-            "ไม่ใช่การพยากรณ์ที่ผ่านการตรวจสอบ และไม่รวมต้นทุนที่ไม่ได้กรอกในแถบด้านข้าง",
-        )
-    )
+        results.append(max(0.0, float(concentration)))
+
+    return results
 
 
 # ============================================================
-# 10. HATCHERY CALCULATOR
+# 4. DISPLAY HELPERS
 # ============================================================
-elif page == "Hatchery Calculator":
 
-    st.header(
-        tr("Hatchery Calculator", "เครื่องคำนวณโรงเพาะฟัก")
-    )
-
-    st.write(
-        tr(
-            "Estimate production stages and illustrative financial results "
-            "using the selected temperature and sidebar assumptions.",
-            "ประมาณจำนวนปลาในแต่ละขั้นตอนและผลทางการเงินโดยใช้ "
-            "อุณหภูมิที่เลือกและสมมติฐานจากแถบด้านข้าง",
-        )
-    )
-
-    temp = st.slider(
-        tr("Water temperature (°C)", "อุณหภูมิน้ำ (°C)"),
-        25.0,
-        36.0,
-        29.0,
-        0.5,
-        key="hatchery_temperature",
-    )
-
-    result = calculate_hatchery(
-        temp,
-        eggs,
-        fry_price,
-        base_cost,
-        cooling_cost,
-    )
-
-    st.subheader(
-        tr("Estimated production", "ผลผลิตโดยประมาณ")
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        tr("Fertilized eggs", "ไข่ที่ปฏิสนธิ"),
-        f'{result["fertilized_eggs"]:,.0f}',
-    )
-
-    c2.metric(
-        tr("Hatched larvae", "ลูกปลาที่ฟัก"),
-        f'{result["hatched_larvae"]:,.0f}',
-    )
-
-    c3.metric(
-        tr("Survivors at 72 h", "ลูกปลารอดที่ 72 ชั่วโมง"),
-        f'{result["survivors"]:,.0f}',
-    )
-
-    st.subheader(
-        tr("Illustrative economics", "ผลทางเศรษฐศาสตร์โดยประมาณ")
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        tr("Revenue", "รายได้"),
-        f'฿{result["revenue"]:,.2f}',
-    )
-
-    c2.metric(
-        tr("Specified costs", "ต้นทุนที่ระบุ"),
-        f'฿{result["total_cost"]:,.2f}',
-    )
-
-    c3.metric(
-        tr("Net result", "ผลสุทธิ"),
-        f'฿{result["net_result"]:,.2f}',
-    )
-
-    stage_labels = [
-        tr("Initial eggs", "ไข่เริ่มต้น"),
-        tr("Fertilized eggs", "ไข่ที่ปฏิสนธิ"),
-        tr("Hatched larvae", "ลูกปลาที่ฟัก"),
-        tr("Survivors at 72 h", "ลูกปลารอดที่ 72 ชั่วโมง"),
-    ]
-
-    stage_values = [
-        eggs,
-        result["fertilized_eggs"],
-        result["hatched_larvae"],
-        result["survivors"],
-    ]
-
-    stage_df = pd.DataFrame(
-        {
-            "Production stage": stage_labels,
-            "Number of fish": stage_values,
-        }
-    )
-
-    fig = px.bar(
-        stage_df,
-        x="Production stage",
-        y="Number of fish",
-        title=tr(
-            "Production by stage",
-            "ผลผลิตแยกตามขั้นตอน",
-        ),
-        text_auto=",.0f",
-    )
-
-    fig.update_layout(
-        xaxis_title=tr("Production stage", "ขั้นตอนการผลิต"),
-        yaxis_title=tr("Number of fish", "จำนวนปลา"),
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
+def show_dataframe(df):
+    """Display a dataframe with compatibility across Streamlit versions."""
     st.dataframe(
-        stage_df,
+        df,
         use_container_width=True,
         hide_index=True,
     )
 
-    with st.expander(
-        tr("Calculation assumptions", "สมมติฐานการคำนวณ")
-    ):
-        st.write(
+
+def make_bar_chart(df, x, y, title, x_title, y_title):
+    """Create a bar chart with consistent formatting."""
+    fig = px.bar(
+        df,
+        x=x,
+        y=y,
+        title=title,
+    )
+
+    fig.update_traces(
+        texttemplate="%{y:.4f}",
+        textposition="outside",
+        cliponaxis=False,
+    )
+
+    fig.update_layout(
+        xaxis_title=x_title,
+        yaxis_title=y_title,
+        margin=dict(t=65, b=40, l=30, r=25),
+    )
+
+    return fig
+
+
+# ============================================================
+# 5. MAIN APPLICATION
+# ============================================================
+
+def run_aquamonitor():
+
+    is_thai = st.session_state.get("language", "English") == "ไทย"
+
+    # --------------------------------------------------------
+    # Page title and introduction
+    # --------------------------------------------------------
+
+    st.title("💧 AquaMonitor")
+
+    st.subheader(
+        tr(
+            "Water Quality & Heavy Metal Risk Assessment in Fish",
+            "การประเมินคุณภาพน้ำและความเสี่ยงจากโลหะหนักในปลา",
+        )
+    )
+
+    st.write(
+        tr(
+            "Enter available laboratory measurements from fish muscle "
+            "to calculate preliminary Hazard Quotients (HQ) and the "
+            "Hazard Index (HI).",
+            "กรอกผลตรวจวิเคราะห์จากกล้ามเนื้อปลาเพื่อคำนวณค่า "
+            "Hazard Quotient (HQ) และ Hazard Index (HI) "
+            "สำหรับการคัดกรองเบื้องต้น",
+        )
+    )
+
+    st.info(
+        tr(
+            "This prototype is for preliminary screening and scenario "
+            "exploration only. It does not certify food safety. "
+            "Verify reference doses, exposure assumptions, units, and "
+            "calculation methods against appropriate scientific sources "
+            "before using results for decisions.",
+            "เครื่องมือต้นแบบนี้ใช้สำหรับการคัดกรองเบื้องต้นและการสำรวจ "
+            "สถานการณ์เท่านั้น ไม่ใช่การรับรองความปลอดภัยของอาหาร "
+            "ควรตรวจสอบค่าอ้างอิงความเป็นพิษ สมมติฐานการรับสัมผัส หน่วย "
+            "และวิธีคำนวณกับแหล่งข้อมูลทางวิชาการที่เหมาะสมก่อนนำผลไปใช้",
+        )
+    )
+
+    # --------------------------------------------------------
+    # Section 1: Fish muscle measurements
+    # --------------------------------------------------------
+
+    st.header(
+        tr(
+            "1. Heavy Metal Concentrations in Fish Muscle",
+            "1. ความเข้มข้นโลหะหนักในกล้ามเนื้อปลา",
+        )
+    )
+
+    st.caption(
+        tr(
+            "Unit: mg/kg wet weight. Select the metals for which "
+            "measurements are available. Unmeasured metals are excluded "
+            "from the calculations, not treated as zero.",
+            "หน่วย: mg/kg น้ำหนักเปียก เลือกเฉพาะโลหะที่มีผลตรวจวัด "
+            "โลหะที่ไม่มีผลตรวจจะไม่ถูกนำมาคำนวณและจะไม่ถือว่ามีค่าเป็นศูนย์",
+        )
+    )
+
+    col_left, col_right = st.columns(2)
+
+    # Initialize measurement availability flags.
+    # These flags prevent blank measurements from being confused with zero.
+    with col_left:
+        has_cr = st.checkbox(
+            tr("Cr measurement available", "มีผลตรวจโครเมียม (Cr)"),
+            key="am_has_cr",
+        )
+
+        cr = None
+
+        if has_cr:
+            cr = st.number_input(
+                tr("Total Chromium, Cr (mg/kg)", "โครเมียมรวม Cr (mg/kg)"),
+                min_value=0.0,
+                value=0.0,
+                step=0.001,
+                format="%.4f",
+                key="am_cr",
+            )
+
+        has_ni = st.checkbox(
+            tr("Ni measurement available", "มีผลตรวจนิกเกิล (Ni)"),
+            key="am_has_ni",
+        )
+
+        ni = None
+
+        if has_ni:
+            ni = st.number_input(
+                tr("Nickel, Ni (mg/kg)", "นิกเกิล Ni (mg/kg)"),
+                min_value=0.0,
+                value=0.0,
+                step=0.001,
+                format="%.4f",
+                key="am_ni",
+            )
+
+    with col_right:
+        has_pb = st.checkbox(
+            tr("Pb measurement available", "มีผลตรวจตะกั่ว (Pb)"),
+            key="am_has_pb",
+        )
+
+        pb = None
+
+        if has_pb:
+            pb = st.number_input(
+                tr("Lead, Pb (mg/kg)", "ตะกั่ว Pb (mg/kg)"),
+                min_value=0.0,
+                value=0.0,
+                step=0.001,
+                format="%.4f",
+                key="am_pb",
+            )
+
+        has_cd = st.checkbox(
+            tr("Cd measurement available", "มีผลตรวจแคดเมียม (Cd)"),
+            key="am_has_cd",
+        )
+
+        cd = None
+
+        if has_cd:
+            cd = st.number_input(
+                tr("Cadmium, Cd (mg/kg)", "แคดเมียม Cd (mg/kg)"),
+                min_value=0.0,
+                value=0.0,
+                step=0.001,
+                format="%.4f",
+                key="am_cd",
+            )
+
+    # --------------------------------------------------------
+    # Section 2: Exposure assumptions
+    # --------------------------------------------------------
+
+    st.header(
+        tr(
+            "2. Exposure Assumptions",
+            "2. สมมติฐานการรับสัมผัส",
+        )
+    )
+
+    body_weight = st.number_input(
+        tr("Consumer body weight (kg)", "น้ำหนักตัวผู้บริโภค (kg)"),
+        min_value=1.0,
+        value=50.0,
+        step=1.0,
+        key="am_weight",
+    )
+
+    st.caption(
+        tr(
+            f"Assumed daily fish consumption: "
+            f"{FISH_CONSUMPTION_RATE:.4f} kg/day.",
+            f"ปริมาณการบริโภคปลาต่อวันที่สมมติ: "
+            f"{FISH_CONSUMPTION_RATE:.4f} kg/day",
+        )
+    )
+
+    # --------------------------------------------------------
+    # Section 3: Optional sediment scenario
+    # --------------------------------------------------------
+
+    st.header(
+        tr(
+            "3. Optional Sediment Chromium Scenario",
+            "3. สถานการณ์โครเมียมในตะกอน (ไม่บังคับ)",
+        )
+    )
+
+    use_sediment = st.checkbox(
+        tr(
+            "Enable sediment scenario analysis",
+            "เปิดใช้การวิเคราะห์สถานการณ์โครเมียมในตะกอน",
+        ),
+        key="am_has_sediment",
+    )
+
+    sediment_cr = None
+
+    if use_sediment:
+        sediment_cr = st.number_input(
             tr(
-                "Biological rates are estimated by linear interpolation "
-                "between reference temperatures of 29°C and 32°C. "
-                "Survival is calculated through sequential multiplication "
-                "of the fertilization, hatching and 72-hour survival rates.",
-                "อัตราทางชีววิทยาประมาณด้วยการประมาณค่าเชิงเส้นระหว่าง "
-                "29°C และ 32°C โดยคำนวณจำนวนลูกปลารอดจากการคูณอัตราการปฏิสนธิ "
-                "อัตราการฟัก และอัตรารอดที่ 72 ชั่วโมงตามลำดับ",
+                "Initial sediment chromium concentration (mg/kg)",
+                "ความเข้มข้นโครเมียมเริ่มต้นในตะกอน (mg/kg)",
+            ),
+            min_value=0.0,
+            value=0.0,
+            step=0.01,
+            format="%.4f",
+            key="am_sediment",
+        )
+
+        horizon = st.selectbox(
+            tr("Simulation period", "ระยะเวลาจำลอง"),
+            options=[1, 5, 10],
+            index=1,
+            format_func=lambda year: tr(
+                f"{year} years",
+                f"{year} ปี",
+            ),
+            key="am_horizon",
+        )
+    else:
+        horizon = 5
+
+    # --------------------------------------------------------
+    # Analysis button
+    # --------------------------------------------------------
+
+    st.divider()
+
+    analyze = st.button(
+        tr("Analyze Results", "วิเคราะห์ผล"),
+        type="primary",
+        key="am_analyze",
+        use_container_width=True,
+    )
+
+    if not analyze:
+        st.caption(
+            tr(
+                "Select the available measurements and click Analyze "
+                "Results to calculate the screening indicators.",
+                "เลือกข้อมูลที่มีผลตรวจ แล้วกดปุ่มวิเคราะห์ผล "
+                "เพื่อคำนวณตัวชี้วัดการคัดกรอง",
+            )
+        )
+        return
+
+    # --------------------------------------------------------
+    # Validate inputs
+    # --------------------------------------------------------
+
+    measured = {
+        "Cr": cr,
+        "Pb": pb,
+        "Ni": ni,
+        "Cd": cd,
+    }
+
+    measured = {
+        metal: float(value)
+        for metal, value in measured.items()
+        if value is not None
+    }
+
+    has_sediment_data = sediment_cr is not None
+
+    if not measured and not has_sediment_data:
+        st.error(
+            tr(
+                "No measurements selected. Select at least one measured "
+                "metal or enable the sediment scenario.",
+                "ยังไม่มีข้อมูล โปรดเลือกโลหะที่มีผลตรวจอย่างน้อยหนึ่งรายการ "
+                "หรือเปิดใช้การวิเคราะห์ตะกอน",
+            )
+        )
+        return
+
+    if body_weight <= 0:
+        st.error(
+            tr(
+                "Body weight must be greater than zero.",
+                "น้ำหนักตัวต้องมากกว่าศูนย์",
+            )
+        )
+        return
+
+    # --------------------------------------------------------
+    # Calculate HQ and HI
+    # --------------------------------------------------------
+
+    hq = {}
+
+    for metal, concentration in measured.items():
+        hq[metal] = (
+            concentration
+            * FISH_CONSUMPTION_RATE
+            / body_weight
+            / RFD[metal]
+        )
+
+    hi = sum(hq.values()) if hq else None
+
+    # --------------------------------------------------------
+    # Section 4: Screening summary
+    # --------------------------------------------------------
+
+    st.header(
+        tr(
+            "4. Screening Summary",
+            "4. สรุปผลการคัดกรอง",
+        )
+    )
+
+    metric1, metric2, metric3 = st.columns(3)
+
+    metric1.metric(
+        tr("Metals measured", "จำนวนโลหะที่มีผลตรวจ"),
+        len(measured),
+    )
+
+    metric2.metric(
+        tr("Hazard Index (HI)", "ดัชนีความเป็นอันตราย (HI)"),
+        f"{hi:.4f}" if hi is not None else "N/A",
+    )
+
+    above_one = sum(value > 1 for value in hq.values())
+
+    metric3.metric(
+        tr("HQ values above 1", "จำนวนค่า HQ ที่มากกว่า 1"),
+        above_one,
+    )
+
+    if hi is not None and hi > 1:
+        st.warning(
+            tr(
+                "The calculated HI exceeds 1 under the selected "
+                "assumptions. This is a screening signal, not proof of "
+                "harm. Seek qualified toxicological risk assessment.",
+                "ค่า HI มากกว่า 1 ภายใต้สมมติฐานที่เลือก เป็นสัญญาณ "
+                "สำหรับการคัดกรอง ไม่ใช่หลักฐานยืนยันว่าจะเกิดอันตราย "
+                "ควรให้ผู้เชี่ยวชาญประเมินความเสี่ยงทางพิษวิทยา",
             )
         )
 
-    st.warning(
-        tr(
-            "This calculator is an illustrative screening tool. "
-            "The limited reference data may not represent all production "
-            "conditions. Economic results exclude any unentered costs.",
-            "เครื่องคำนวณนี้ใช้สำหรับการประเมินเบื้องต้นเท่านั้น "
-            "ข้อมูลอ้างอิงที่มีจำกัดอาจไม่ครอบคลุมทุกสภาวะการผลิต "
-            "และผลทางเศรษฐศาสตร์ไม่รวมต้นทุนที่ไม่ได้ระบุ",
+    elif hi is not None:
+        st.info(
+            tr(
+                "The calculated HI is at or below 1 under the selected "
+                "assumptions. This does not establish that the fish is "
+                "safe. Results depend on exposure assumptions, reference "
+                "doses, and the metals measured.",
+                "ค่า HI ไม่เกิน 1 ภายใต้สมมติฐานที่เลือก แต่ไม่ได้ยืนยัน "
+                "ว่าปลอดภัย ผลขึ้นอยู่กับสมมติฐานการรับสัมผัส "
+                "ค่าอ้างอิงความเป็นพิษ และโลหะที่ตรวจวัด",
+            )
         )
-    )
 
+    if not measured:
+        st.info(
+            tr(
+                "No fish-muscle metal measurements were provided. "
+                "HQ and HI were not calculated.",
+                "ไม่มีผลตรวจโลหะหนักในกล้ามเนื้อปลา จึงไม่ได้คำนวณ HQ และ HI",
+            )
+        )
 
-# ============================================================
-# 11. CLIMATE SIMULATION
-# ============================================================
-elif page == "Climate Simulation":
+    # --------------------------------------------------------
+    # Section 5: Concentration chart
+    # --------------------------------------------------------
+
+    if measured:
+        st.header(
+            tr(
+                "5. Heavy Metal Concentrations",
+                "5. ความเข้มข้นโลหะหนัก",
+            )
+        )
+
+        concentration_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal_label(metal),
+                    "Concentration (mg/kg)": concentration,
+                }
+                for metal, concentration in measured.items()
+            ]
+        )
+
+        fig_conc = make_bar_chart(
+            concentration_df,
+            x="Metal",
+            y="Concentration (mg/kg)",
+            title=tr(
+                "Measured concentrations in fish muscle",
+                "ความเข้มข้นที่ตรวจวัดได้ในกล้ามเนื้อปลา",
+            ),
+            x_title=tr("Metal", "โลหะ"),
+            y_title=tr(
+                "Concentration (mg/kg)",
+                "ความเข้มข้น (mg/kg)",
+            ),
+        )
+
+        st.plotly_chart(
+            fig_conc,
+            use_container_width=True,
+        )
+
+        # ----------------------------------------------------
+        # Section 6: HQ chart and results table
+        # ----------------------------------------------------
+
+        st.header(
+            tr(
+                "6. Hazard Quotient (HQ)",
+                "6. ค่าดัชนีอันตรายรายสาร (HQ)",
+            )
+        )
+
+        hq_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal_label(metal),
+                    "HQ": value,
+                }
+                for metal, value in hq.items()
+            ]
+        )
+
+        fig_hq = make_bar_chart(
+            hq_df,
+            x="Metal",
+            y="HQ",
+            title=tr(
+                "Screening Hazard Quotient by metal",
+                "ค่า HQ สำหรับการคัดกรองแยกตามโลหะ",
+            ),
+            x_title=tr("Metal", "โลหะ"),
+            y_title="HQ",
+        )
+
+        fig_hq.add_hline(
+            y=1,
+            line_dash="dash",
+            annotation_text="HQ = 1",
+        )
+
+        st.plotly_chart(
+            fig_hq,
+            use_container_width=True,
+        )
+
+        results_df = pd.DataFrame(
+            [
+                {
+                    "Metal": metal_label(metal),
+                    "Concentration (mg/kg)": measured[metal],
+                    "Assumed RfD": RFD[metal],
+                    "HQ": hq[metal],
+                }
+                for metal in measured
+            ]
+        )
+
+        st.subheader(
+            tr(
+                "Screening Results Table",
+                "ตารางผลการคัดกรอง",
+            )
+        )
+
+        formatted_results = results_df.copy()
+
+        for column in [
+            "Concentration (mg/kg)",
+            "Assumed RfD",
+            "HQ",
+        ]:
+            formatted_results[column] = formatted_results[column].map(
+                lambda value: f"{value:.4f}"
+            )
+
+        show_dataframe(formatted_results)
+
+    # --------------------------------------------------------
+    # Section 7: Sediment scenario analysis
+    # --------------------------------------------------------
+
+    sediment_scenarios_df = None
+
+    if has_sediment_data:
+        st.header(
+            tr(
+                "7. Sediment Chromium Scenario Analysis",
+                "7. การวิเคราะห์สถานการณ์โครเมียมในตะกอน",
+            )
+        )
+
+        st.warning(
+            tr(
+                "These are hypothetical scenarios, not validated "
+                "environmental forecasts. The parameters should be "
+                "calibrated using site-specific measurements.",
+                "สถานการณ์เหล่านี้เป็นการจำลองสมมติ ไม่ใช่การพยากรณ์ "
+                "สิ่งแวดล้อมที่ผ่านการตรวจสอบ พารามิเตอร์ควรปรับเทียบ "
+                "ด้วยข้อมูลตรวจวัดจากพื้นที่จริง",
+            )
+        )
+
+        scenarios = [
+            {
+                "id": "A",
+                "name": tr(
+                    "A - No Intervention",
+                    "A - ไม่ดำเนินมาตรการ",
+                ),
+                "input_rate": float(sediment_cr),
+                "decay": 0.05,
+            },
+            {
+                "id": "B",
+                "name": tr(
+                    "B - Source Reduction",
+                    "B - ลดแหล่งกำเนิด",
+                ),
+                "input_rate": float(sediment_cr) * 0.85,
+                "decay": 0.07,
+            },
+            {
+                "id": "C",
+                "name": tr(
+                    "C - Intensive Control",
+                    "C - ควบคุมเข้มข้น",
+                ),
+                "input_rate": 0.0,
+                "decay": 0.10,
+            },
+        ]
+
+        scenario_records = []
+
+        for scenario in scenarios:
+            values = sediment_model(
+                initial=float(sediment_cr),
+                years=int(horizon),
+                input_rate=scenario["input_rate"],
+                decay=scenario["decay"],
+            )
+
+            for year, concentration in enumerate(values):
+                scenario_records.append(
+                    {
+                        "Scenario": scenario["name"],
+                        "Year": year,
+                        "Sediment chromium (mg/kg)": concentration,
+                    }
+                )
+
+        sediment_scenarios_df = pd.DataFrame(scenario_records)
+
+        fig_sediment = px.line(
+            sediment_scenarios_df,
+            x="Year",
+            y="Sediment chromium (mg/kg)",
+            color="Scenario",
+            markers=True,
+            title=tr(
+                "Illustrative sediment chromium scenarios",
+                "สถานการณ์จำลองโครเมียมในตะกอน",
+            ),
+        )
+
+        fig_sediment.update_layout(
+            xaxis_title=tr("Year", "ปี"),
+            yaxis_title=tr(
+                "Sediment chromium (mg/kg)",
+                "โครเมียมในตะกอน (mg/kg)",
+            ),
+        )
+
+        st.plotly_chart(
+            fig_sediment,
+            use_container_width=True,
+        )
+
+        final_year_df = sediment_scenarios_df[
+            sediment_scenarios_df["Year"] == int(horizon)
+        ].copy()
+
+        st.subheader(
+            tr(
+                f"Scenario summary at year {horizon}",
+                f"สรุปสถานการณ์ในปีที่ {horizon}",
+            )
+        )
+
+        final_display = final_year_df.copy()
+
+        final_display["Sediment chromium (mg/kg)"] = (
+            final_display["Sediment chromium (mg/kg)"].map(
+                lambda value: f"{value:.4f}"
+            )
+        )
+
+        show_dataframe(final_display)
+
+    # --------------------------------------------------------
+    # Section 8: Export results
+    # --------------------------------------------------------
 
     st.header(
-        tr("Climate Simulation", "จำลองสภาพภูมิอากาศ")
-    )
-
-    st.write(
         tr(
-            "Explore illustrative seasonal temperature patterns, "
-            "temperature-dependent survival, and multi-year uncertainty.",
-            "สำรวจรูปแบบอุณหภูมิตามฤดูกาล การรอดตามอุณหภูมิ "
-            "และความไม่แน่นอนในหลายปีด้วยสถานการณ์จำลอง",
+            "8. Export Results",
+            "8. ส่งออกผลลัพธ์",
         )
     )
 
-    col1, col2, col3 = st.columns(3)
+    export_rows = []
 
-    with col1:
-        anomaly_sd = st.slider(
-            tr("Annual anomaly SD (°C)", "ส่วนเบี่ยงเบนมาตรฐานของความแปรปรวนรายปี (°C)"),
-            min_value=0.0,
-            max_value=1.0,
-            value=E_SD,
-            step=0.05,
-            key="climate_anomaly_sd",
-        )
-
-    with col2:
-        delta_g = st.slider(
-            tr("Threshold shift Δg (°C)", "การเลื่อนเกณฑ์ Δg (°C)"),
-            min_value=0.10,
-            max_value=0.20,
-            value=DELTA_G,
-            step=0.01,
-            key="climate_delta_g",
-        )
-
-    with col3:
-        seed = st.number_input(
-            tr("Random seed", "ค่าเริ่มต้นสุ่ม"),
-            min_value=0,
-            value=SEED,
-            step=1,
-            key="climate_seed",
-        )
-
-    days = np.arange(1, 366)
-
-    base_temps = seasonal_temperature(days, year_index=0)
-
-    future_temps = seasonal_temperature(days, year_index=10)
-
-    st.subheader(
-        tr("Seasonal temperature scenario", "สถานการณ์อุณหภูมิตามฤดูกาล")
-    )
-
-    seasonal_df = pd.DataFrame(
-        {
-            "Day of year": np.concatenate([days, days]),
-            "Temperature (°C)": np.concatenate(
-                [base_temps, future_temps]
-            ),
-            "Scenario": (
-                [tr("Baseline year", "ปีฐาน")] * len(days)
-                + [tr("Year +10", "ปีที่ +10")] * len(days)
-            ),
-        }
-    )
-
-    fig_temp = px.line(
-        seasonal_df,
-        x="Day of year",
-        y="Temperature (°C)",
-        color="Scenario",
-        title=tr(
-            "Illustrative seasonal temperature",
-            "อุณหภูมิตามฤดูกาลโดยประมาณ",
-        ),
-    )
-
-    fig_temp.update_layout(
-        xaxis_title=tr("Day of year", "วันในรอบปี"),
-        yaxis_title=tr("Temperature (°C)", "อุณหภูมิ (°C)"),
-    )
-
-    st.plotly_chart(fig_temp, use_container_width=True)
-
-    st.subheader(
-        tr(
-            "Illustrative temperature-dependent survival",
-            "การรอดตามอุณหภูมิโดยประมาณ",
-        )
-    )
-
-    temp_grid = np.linspace(22, 38, 200)
-
-    survival_baseline = gaussian_survival(
-        temp_grid,
-        threshold_shift=0.0,
-    )
-
-    survival_shifted = gaussian_survival(
-        temp_grid,
-        threshold_shift=delta_g,
-    )
-
-    survival_df = pd.DataFrame(
-        {
-            "Temperature (°C)": np.concatenate(
-                [temp_grid, temp_grid]
-            ),
-            "Illustrative survival (%)": np.concatenate(
-                [survival_baseline, survival_shifted]
-            ),
-            "Scenario": (
-                [tr("Baseline threshold", "เกณฑ์ฐาน")] * len(temp_grid)
-                + [
-                    tr("Shifted threshold", "เกณฑ์ที่เลื่อน")
-                ] * len(temp_grid)
-            ),
-        }
-    )
-
-    fig_survival = px.line(
-        survival_df,
-        x="Temperature (°C)",
-        y="Illustrative survival (%)",
-        color="Scenario",
-        title=tr(
-            "Illustrative survival response",
-            "การตอบสนองด้านการรอดโดยประมาณ",
-        ),
-    )
-
-    fig_survival.update_layout(
-        xaxis_title=tr("Temperature (°C)", "อุณหภูมิ (°C)"),
-        yaxis_title=tr("Illustrative survival (%)", "อัตรารอดโดยประมาณ (%)"),
-    )
-
-    st.plotly_chart(fig_survival, use_container_width=True)
-
-    st.subheader(
-        tr("Multi-year Monte Carlo simulation", "การจำลอง Monte Carlo หลายปี")
-    )
-
-    st.write(
-        tr(
-            "Each simulated year receives one random temperature anomaly. "
-            "The same anomaly is applied across all days within that year. "
-            "The resulting interval represents scenario uncertainty under "
-            "the assumptions below, not a validated climate forecast.",
-            "แต่ละปีจำลองได้รับค่าความแปรปรวนของอุณหภูมิแบบสุ่มหนึ่งค่า "
-            "และใช้ค่าเดียวกันตลอดทุกวันในปีนั้น ช่วงค่าที่ได้สะท้อนความไม่แน่นอน "
-            "ภายใต้สมมติฐานของแบบจำลอง ไม่ใช่การพยากรณ์ภูมิอากาศที่ผ่านการตรวจสอบ",
-        )
-    )
-
-    rng = np.random.default_rng(int(seed))
-
-    years = np.arange(2026, 2037)
-
-    annual_records = []
-    daily_records = []
-
-    for year in years:
-        year_index = int(year - 2026)
-
-        deterministic_temps = seasonal_temperature(
-            days,
-            year_index=year_index,
-        )
-
-        anomalies = rng.normal(
-            loc=0.0,
-            scale=anomaly_sd,
-            size=N_MONTE_CARLO,
-        )
-
-        # One anomaly per simulated year; shared across all days.
-        simulated_temps = (
-            deterministic_temps[np.newaxis, :]
-            + anomalies[:, np.newaxis]
-        )
-
-        simulated_survival = gaussian_survival(
-            simulated_temps,
-            threshold_shift=delta_g,
-        )
-
-        annual_mean_survival = simulated_survival.mean(axis=1)
-
-        q025, q50, q975 = np.quantile(
-            annual_mean_survival,
-            [0.025, 0.50, 0.975],
-        )
-
-        annual_records.append(
+    for metal, concentration in measured.items():
+        export_rows.append(
             {
-                "Year": int(year),
-                "Mean temperature (°C)": float(
-                    deterministic_temps.mean()
+                "Record type": "Fish muscle concentration",
+                "Metal": metal,
+                "Concentration (mg/kg)": concentration,
+                "Assumed RfD": RFD[metal],
+                "HQ": hq[metal],
+                "HI": hi,
+                "Body weight (kg)": body_weight,
+                "Assumed fish consumption (kg/day)": (
+                    FISH_CONSUMPTION_RATE
                 ),
-                "Median survival (%)": float(q50),
-                "Survival 2.5th percentile (%)": float(q025),
-                "Survival 97.5th percentile (%)": float(q975),
-                "Anomaly SD (°C)": float(anomaly_sd),
-                "Threshold shift (°C)": float(delta_g),
-                "Monte Carlo simulations": int(N_MONTE_CARLO),
-                "Random seed": int(seed),
+                "Sediment scenario": "",
+                "Year": np.nan,
+                "Sediment chromium (mg/kg)": np.nan,
             }
         )
 
-        daily_mean = simulated_temps.mean(axis=0)
-
-        daily_low = np.quantile(
-            simulated_temps,
-            0.025,
-            axis=0,
-        )
-
-        daily_high = np.quantile(
-            simulated_temps,
-            0.975,
-            axis=0,
-        )
-
-        for i, day in enumerate(days):
-            daily_records.append(
+    if sediment_scenarios_df is not None:
+        for _, row in sediment_scenarios_df.iterrows():
+            export_rows.append(
                 {
-                    "Year": int(year),
-                    "Day of year": int(day),
-                    "Mean temperature (°C)": float(daily_mean[i]),
-                    "Temperature 2.5th percentile (°C)": float(
-                        daily_low[i]
+                    "Record type": "Sediment scenario",
+                    "Metal": "Cr",
+                    "Concentration (mg/kg)": np.nan,
+                    "Assumed RfD": np.nan,
+                    "HQ": np.nan,
+                    "HI": np.nan,
+                    "Body weight (kg)": body_weight,
+                    "Assumed fish consumption (kg/day)": (
+                        FISH_CONSUMPTION_RATE
                     ),
-                    "Temperature 97.5th percentile (°C)": float(
-                        daily_high[i]
+                    "Sediment scenario": row["Scenario"],
+                    "Year": int(row["Year"]),
+                    "Sediment chromium (mg/kg)": (
+                        row["Sediment chromium (mg/kg)"]
                     ),
                 }
             )
 
-    annual_df = pd.DataFrame(annual_records)
-    multiyear_daily_df = pd.DataFrame(daily_records)
+    if not export_rows:
+        export_rows.append(
+            {
+                "Record type": "Summary",
+                "Metal": "",
+                "Concentration (mg/kg)": np.nan,
+                "Assumed RfD": np.nan,
+                "HQ": np.nan,
+                "HI": hi if hi is not None else np.nan,
+                "Body weight (kg)": body_weight,
+                "Assumed fish consumption (kg/day)": (
+                    FISH_CONSUMPTION_RATE
+                ),
+                "Sediment scenario": "",
+                "Year": np.nan,
+                "Sediment chromium (mg/kg)": np.nan,
+            }
+        )
 
-    fig_mc = px.line(
-        annual_df,
-        x="Year",
-        y="Median survival (%)",
-        title=tr(
-            "Multi-year median illustrative survival",
-            "ค่ามัธยฐานการรอดโดยประมาณในหลายปี",
+    export_df = pd.DataFrame(export_rows)
+
+    st.download_button(
+        label=tr(
+            "Download Results (CSV)",
+            "ดาวน์โหลดผลลัพธ์ (CSV)",
         ),
+        data=export_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="AquaMonitor_results.csv",
+        mime="text/csv",
+        key="am_download",
+        use_container_width=True,
     )
 
-    fig_mc.add_scatter(
-        x=annual_df["Year"],
-        y=annual_df["Survival 2.5th percentile (%)"],
-        mode="lines",
-        line=dict(width=0),
-        showlegend=False,
-        name="Lower interval",
-    )
+    # --------------------------------------------------------
+    # Section 9: Limitations
+    # --------------------------------------------------------
 
-    fig_mc.add_scatter(
-        x=annual_df["Year"],
-        y=annual_df["Survival 97.5th percentile (%)"],
-        mode="lines",
-        line=dict(width=0),
-        fill="tonexty",
-        fillcolor="rgba(31, 119, 180, 0.18)",
-        name=tr("95% scenario interval", "ช่วงสถานการณ์ 95%"),
-    )
-
-    fig_mc.update_layout(
-        xaxis_title=tr("Year", "ปี"),
-        yaxis_title=tr("Illustrative survival (%)", "อัตรารอดโดยประมาณ (%)"),
-    )
-
-    st.plotly_chart(fig_mc, use_container_width=True)
+    st.divider()
 
     st.subheader(
-        tr("Annual scenario summary", "สรุปสถานการณ์รายปี")
-    )
-
-    st.dataframe(
-        annual_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        tr("Download annual scenario CSV", "ดาวน์โหลดข้อมูลสถานการณ์รายปี CSV"),
-        data=annual_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="climate_annual_scenario.csv",
-        mime="text/csv",
-        key="climate_download_annual",
-    )
-
-    st.download_button(
-        tr("Download seasonal temperature CSV", "ดาวน์โหลดข้อมูลอุณหภูมิตามฤดูกาล CSV"),
-        data=seasonal_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="climate_seasonal_temperature.csv",
-        mime="text/csv",
-        key="climate_download_seasonal",
-    )
-
-    st.download_button(
-        tr("Download multi-year daily CSV", "ดาวน์โหลดข้อมูลรายวันหลายปี CSV"),
-        data=multiyear_daily_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="climate_multiyear_daily.csv",
-        mime="text/csv",
-        key="climate_download_daily",
+        tr(
+            "Important Limitations",
+            "ข้อจำกัดสำคัญ",
+        )
     )
 
     st.warning(
         tr(
-            "All climate and survival curves are illustrative scenarios. "
-            "Parameters have not been calibrated as local climate forecasts "
-            "or validated survival predictions. The uncertainty interval "
-            "reflects only the specified Monte Carlo anomaly.",
-            "เส้นกราฟภูมิอากาศและการรอดเป็นสถานการณ์สมมติ "
-            "พารามิเตอร์ยังไม่ได้ปรับเทียบเพื่อใช้เป็นการพยากรณ์ภูมิอากาศเฉพาะพื้นที่ "
-            "หรือการทำนายการรอดที่ผ่านการตรวจสอบ ช่วงความไม่แน่นอนสะท้อนเฉพาะ "
-            "ความแปรปรวนที่กำหนดในการจำลอง Monte Carlo",
+            "HQ and HI depend on the assumed exposure rate, body weight, "
+            "reference doses, units, and calculation method. The reference "
+            "doses in this prototype must be independently verified for "
+            "the intended exposure pathway. Summing HQ values is a screening "
+            "approach and may not account for all toxicological interactions. "
+            "Total chromium does not distinguish Cr(VI) from other chromium "
+            "species. The sediment model is hypothetical and is not validated "
+            "for a specific site. This tool does not replace applicable "
+            "standards, laboratory quality assurance, or professional "
+            "risk assessment.",
+            "ค่า HQ และ HI ขึ้นอยู่กับอัตราการรับสัมผัส น้ำหนักตัว "
+            "ค่าอ้างอิงความเป็นพิษ หน่วย และวิธีคำนวณ ค่าอ้างอิงความเป็นพิษ "
+            "ในต้นแบบนี้ต้องได้รับการตรวจสอบอย่างอิสระให้เหมาะสมกับช่องทาง "
+            "การรับสัมผัสที่ต้องการศึกษา การรวมค่า HQ เป็น HI เป็นวิธีคัดกรอง "
+            "และอาจไม่ครอบคลุมปฏิสัมพันธ์ทางพิษวิทยาทั้งหมด การตรวจโครเมียมรวม "
+            "ไม่สามารถแยก Cr(VI) ออกจากรูปแบบอื่นได้ แบบจำลองตะกอนเป็นสถานการณ์ "
+            "สมมติและยังไม่ได้ตรวจสอบสำหรับพื้นที่เฉพาะ เครื่องมือนี้ไม่สามารถ "
+            "ใช้แทนมาตรฐานที่เกี่ยวข้อง การประกันคุณภาพห้องปฏิบัติการ "
+            "หรือการประเมินความเสี่ยงโดยผู้เชี่ยวชาญได้",
         )
     )
 
-
-# ============================================================
-# 12. SENSITIVITY ANALYSIS
-# ============================================================
-elif page == "Sensitivity Analysis":
-
-    st.header(
-        tr("Sensitivity Analysis", "วิเคราะห์ความอ่อนไหว")
-    )
-
-    st.write(
+    st.caption(
         tr(
-            "Compare how changes in water temperature affect estimated "
-            "survivors and illustrative financial results.",
-            "เปรียบเทียบผลของการเปลี่ยนแปลงอุณหภูมิน้ำต่อจำนวนลูกปลารอด "
-            "และผลทางการเงินโดยประมาณ",
+            "AquaMonitor | Preliminary screening and scenario exploration only.",
+            "AquaMonitor | ใช้สำหรับการคัดกรองเบื้องต้นและสำรวจสถานการณ์เท่านั้น",
         )
     )
-
-    baseline_temp = st.slider(
-        tr("Baseline temperature (°C)", "อุณหภูมิฐาน (°C)"),
-        min_value=25.0,
-        max_value=36.0,
-        value=29.0,
-        step=0.5,
-        key="sensitivity_baseline_temp",
-    )
-
-    temp_range = st.slider(
-        tr("Temperature range around baseline (°C)", "ช่วงอุณหภูมิรอบค่าอุณหภูมิฐาน (°C)"),
-        min_value=-3.0,
-        max_value=3.0,
-        value=(-2.0, 2.0),
-        step=0.5,
-        key="sensitivity_temp_range",
-    )
-
-    sensitivity_eggs = st.number_input(
-        tr("Initial eggs for sensitivity analysis", "จำนวนไข่สำหรับการวิเคราะห์"),
-        min_value=1,
-        value=int(eggs),
-        step=100_000,
-        key="sensitivity_eggs",
-    )
-
-    sensitivity_price = st.number_input(
-        tr("Price per fry (THB)", "ราคาต่อลูกปลา (บาท)"),
-        min_value=0.0,
-        value=float(fry_price),
-        step=0.10,
-        key="sensitivity_price",
-    )
-
-    sensitivity_base_cost = st.number_input(
-        tr("Base operating cost (THB)", "ต้นทุนดำเนินงานพื้นฐาน (บาท)"),
-        min_value=0.0,
-        value=float(base_cost),
-        step=5_000.0,
-        key="sensitivity_base_cost",
-    )
-
-    sensitivity_cooling_cost = st.number_input(
-        tr("Cooling cost (THB)", "ต้นทุนระบบทำความเย็น (บาท)"),
-        min_value=0.0,
-        value=float(cooling_cost),
-        step=5_000.0,
-        key="sensitivity_cooling_cost",
-    )
-
-    include_cooling = st.checkbox(
-        tr(
-            "Include cooling cost in all scenarios",
-            "รวมต้นทุนระบบทำความเย็นในทุกสถานการณ์",
-        ),
-        value=False,
-        key="sensitivity_include_cooling",
-    )
-
-    temp_min = max(
-        25.0,
-        baseline_temp + float(temp_range[0]),
-    )
-
-    temp_max = min(
-        36.0,
-        baseline_temp + float(temp_range[1]),
-    )
-
-    if temp_min > temp_max:
-        temp_min = temp_max = float(
-            np.clip(baseline_temp, 25.0, 36.0)
-        )
-
-    scenario_temps = np.arange(
-        temp_min,
-        temp_max + 0.001,
-        0.25,
-    )
-
-    if len(scenario_temps) == 0:
-        scenario_temps = np.array([baseline_temp])
-
-    if not np.any(np.isclose(scenario_temps, baseline_temp)):
-        scenario_temps = np.append(
-            scenario_temps,
-            np.clip(baseline_temp, temp_min, temp_max),
-        )
-
-    scenario_temps = np.unique(np.round(scenario_temps, 2))
-
-    def calculate_scenario(temp):
-        rates = biological_rates(temp)
-
-        fertilized = sensitivity_eggs * rates["Fertilization rate"]
-
-        hatched = fertilized * rates["Hatching rate"]
-
-        survivors = hatched * rates["Survival rate to 72 h"]
-
-        revenue = survivors * sensitivity_price
-
-        cost = sensitivity_base_cost
-
-        if include_cooling:
-            cost += sensitivity_cooling_cost
-
-        net = revenue - cost
-
-        return {
-            "Temperature (°C)": float(temp),
-            "Fertilization rate": rates["Fertilization rate"],
-            "Hatching rate": rates["Hatching rate"],
-            "Survival rate to 72 h": rates["Survival rate to 72 h"],
-            "Estimated survivors": survivors,
-            "Revenue (THB)": revenue,
-            "Costs included (THB)": cost,
-            "Net result (THB)": net,
-        }
-
-    scenario_df = pd.DataFrame(
-        [calculate_scenario(t) for t in scenario_temps]
-    )
-
-    baseline_row = calculate_scenario(
-        float(np.clip(baseline_temp, 25.0, 36.0))
-    )
-
-    scenario_df["Change in survivors"] = (
-        scenario_df["Estimated survivors"]
-        - baseline_row["Estimated survivors"]
-    )
-
-    scenario_df["Change in survivors (%)"] = np.where(
-        baseline_row["Estimated survivors"] != 0,
-        scenario_df["Change in survivors"]
-        / baseline_row["Estimated survivors"]
-        * 100,
-        np.nan,
-    )
-
-    st.subheader(
-        tr("Estimated survivors", "จำนวนลูกปลารอดโดยประมาณ")
-    )
-
-    fig_survivors = px.line(
-        scenario_df,
-        x="Temperature (°C)",
-        y="Estimated survivors",
-        markers=True,
-        title=tr(
-            "Estimated survivors by temperature",
-            "จำนวนลูกปลารอดโดยประมาณตามอุณหภูมิ",
-        ),
-    )
-
-    fig_survivors.add_vline(
-        x=baseline_temp,
-        line_dash="dash",
-        annotation_text=tr("Baseline", "ค่าอุณหภูมิฐาน"),
-    )
-
-    fig_survivors.update_layout(
-        xaxis_title=tr("Temperature (°C)", "อุณหภูมิ (°C)"),
-        yaxis_title=tr("Estimated survivors", "จำนวนลูกปลารอดโดยประมาณ"),
-    )
-
-    st.plotly_chart(fig_survivors, use_container_width=True)
-
-    st.subheader(
-        tr("Illustrative net result", "ผลสุทธิโดยประมาณ")
-    )
-
-    fig_net = px.line(
-        scenario_df,
-        x="Temperature (°C)",
-        y="Net result (THB)",
-        markers=True,
-        title=tr(
-            "Net result by temperature",
-            "ผลสุทธิตามอุณหภูมิ",
-        ),
-    )
-
-    fig_net.add_hline(y=0, line_dash="dash")
-
-    fig_net.add_vline(
-        x=baseline_temp,
-        line_dash="dash",
-        annotation_text=tr("Baseline", "ค่าอุณหภูมิฐาน"),
-    )
-
-    fig_net.update_layout(
-        xaxis_title=tr("Temperature (°C)", "อุณหภูมิ (°C)"),
-        yaxis_title=tr("Net result (THB)", "ผลสุทธิ (บาท)"),
-    )
-
-    st.plotly_chart(fig_net, use_container_width=True)
-
-    st.subheader(
-        tr("Change in survivors vs. baseline", "การเปลี่ยนแปลงจำนวนลูกปลารอดเทียบกับค่าอุณหภูมิฐาน")
-    )
-
-    fig_change = px.bar(
-        scenario_df,
-        x="Temperature (°C)",
-        y="Change in survivors",
-        title=tr(
-            "Change in estimated survivors",
-            "การเปลี่ยนแปลงจำนวนลูกปลารอดโดยประมาณ",
-        ),
-    )
-
-    fig_change.add_hline(y=0, line_dash="dash")
-
-    fig_change.update_layout(
-        xaxis_title=tr("Temperature (°C)", "อุณหภูมิ (°C)"),
-        yaxis_title=tr("Change in survivors", "การเปลี่ยนแปลงจำนวนลูกปลารอด"),
-    )
-
-    st.plotly_chart(fig_change, use_container_width=True)
-
-    st.subheader(
-        tr("Scenario results table", "ตารางผลลัพธ์ของแต่ละสถานการณ์")
-    )
-
-    st.dataframe(
-        scenario_df.style.format(
-            {
-                "Temperature (°C)": "{:.2f}",
-                "Fertilization rate": "{:.1%}",
-                "Hatching rate": "{:.1%}",
-                "Survival rate to 72 h": "{:.1%}",
-                "Estimated survivors": "{:,.0f}",
-                "Revenue (THB)": "฿{:,.2f}",
-                "Costs included (THB)": "฿{:,.2f}",
-                "Net result (THB)": "฿{:,.2f}",
-                "Change in survivors": "{:,.0f}",
-                "Change in survivors (%)": "{:+.2f}%",
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        tr("Download sensitivity results CSV", "ดาวน์โหลดผลการวิเคราะห์ความอ่อนไหว CSV"),
-        data=scenario_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="sensitivity_analysis.csv",
-        mime="text/csv",
-        key="sensitivity_download",
-    )
-
-    st.info(
-        tr(
-            "Sensitivity results use the same two-temperature reference "
-            "dataset and interpolation method. They are not independent "
-            "experimental observations. Costs are included according to "
-            "the checkbox above.",
-            "ผลการวิเคราะห์ใช้ข้อมูลอ้างอิงสองอุณหภูมิและวิธีประมาณค่าเดียวกัน "
-            "จึงไม่ใช่ผลการทดลองอิสระ ต้นทุนที่นำมาคำนวณขึ้นอยู่กับตัวเลือกด้านบน",
-        )
-    )
-
-
-# ============================================================
-# 13. AQUAMONITOR
-# ============================================================
-elif page == "AquaMonitor":
-
-    st.header(
-        tr("AquaMonitor", "AquaMonitor")
-    )
-
-    st.write(
-        tr(
-            "Open the water quality and heavy metal risk assessment module.",
-            "เปิดโมดูลประเมินคุณภาพน้ำและความเสี่ยงจากโลหะหนัก",
-        )
-    )
-
-    try:
-        from aquamonitor import run_aquamonitor
-
-        run_aquamonitor()
-
-    except ImportError:
-        st.error(
-            tr(
-                "The file aquamonitor.py could not be imported. "
-                "Please confirm that it exists in the same folder as app.py.",
-                "ไม่สามารถนำเข้าไฟล์ aquamonitor.py ได้ "
-                "โปรดตรวจสอบว่าไฟล์อยู่ในโฟลเดอร์เดียวกับ app.py",
-            )
-        )
-
-
-# ============================================================
-# 14. METHODS AND LIMITATIONS
-# ============================================================
-elif page == "Methods":
-
-    st.header(
-        tr("Methods & Limitations", "วิธีการและข้อจำกัด")
-    )
-
-    st.write(
-        tr(
-            "This dashboard combines a small reference dataset with "
-            "illustrative hatchery calculations, seasonal temperature "
-            "scenarios, Monte Carlo uncertainty analysis, and sensitivity "
-            "analysis. Outputs should be interpreted in the context of "
-            "the assumptions listed below.",
-            "แดชบอร์ดนี้รวมข้อมูลอ้างอิงที่มีจำกัดเข้ากับการคำนวณโรงเพาะฟัก "
-            "สถานการณ์อุณหภูมิตามฤดูกาล การวิเคราะห์ความไม่แน่นอนด้วย "
-            "Monte Carlo และการวิเคราะห์ความอ่อนไหว ควรแปลผลโดยพิจารณา "
-            "สมมติฐานและข้อจำกัดต่อไปนี้",
-        )
-    )
-
-    with st.expander(
-        tr("1. Reference data", "1. ข้อมูลอ้างอิง"),
-        expanded=True,
-    ):
-        reference_df = pd.DataFrame(REFERENCE)
-
-        st.dataframe(
-            reference_df,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.write(
-            tr(
-                "The current model uses observations at 29°C and 32°C. "
-                "These two points are insufficient to characterize all "
-                "temperature-dependent biological responses.",
-                "แบบจำลองปัจจุบันใช้ข้อมูลที่ 29°C และ 32°C "
-                "ข้อมูลเพียงสองจุดยังไม่เพียงพอที่จะอธิบายการตอบสนองทางชีววิทยา "
-                "ต่ออุณหภูมิได้ครบทุกช่วง",
-            )
-        )
-
-    with st.expander(
-        tr("2. Hatchery calculations", "2. การคำนวณโรงเพาะฟัก")
-    ):
-        st.markdown(
-            r"""
-            \[
-            N_{\mathrm{fertilized}}
-            =
-            N_{\mathrm{eggs}}\times r_{\mathrm{fertilization}}
-            \]
-
-            \[
-            N_{\mathrm{hatched}}
-            =
-            N_{\mathrm{fertilized}}\times r_{\mathrm{hatching}}
-            \]
-
-            \[
-            N_{\mathrm{survivors}}
-            =
-            N_{\mathrm{hatched}}\times r_{\mathrm{survival,72h}}
-            \]
-            """
-        )
-
-        st.write(
-            tr(
-                "The number of survivors is calculated by multiplying "
-                "the successive biological rates.",
-                "จำนวนลูกปลารอดคำนวณจากการคูณอัตราทางชีววิทยาในแต่ละขั้นตอน",
-            )
-        )
-
-    with st.expander(
-        tr("3. Interpolation", "3. การประมาณค่า")
-    ):
-        st.markdown(
-            r"""
-            \[
-            r(T)
-            =
-            r_1+
-            \frac{T-T_1}{T_2-T_1}(r_2-r_1)
-            \]
-            """
-        )
-
-        st.write(
-            tr(
-                "Linear interpolation is applied between 29°C and 32°C. "
-                "Outside that range, the endpoint value is used. "
-                "This is a simplifying assumption, not evidence that "
-                "biological rates remain constant beyond the observed range.",
-                "ใช้การประมาณค่าเชิงเส้นระหว่าง 29°C และ 32°C "
-                "และใช้ค่าที่ปลายช่วงเมื่ออยู่นอกช่วงดังกล่าว "
-                "นี่เป็นสมมติฐานเพื่อให้คำนวณได้ ไม่ใช่หลักฐานว่าอัตราทางชีววิทยา "
-                "คงที่เมื่ออยู่นอกช่วงอุณหภูมิที่มีข้อมูล",
-            )
-        )
-
-    with st.expander(
-        tr("4. Seasonal temperature model", "4. แบบจำลองอุณหภูมิตามฤดูกาล")
-    ):
-        st.markdown(
-            r"""
-            \[
-            T(d,y)
-            =
-            \left(T_{\mathrm{mean}}+\alpha y\right)
-            +
-            \left(A_0e^{-\beta y}\right)
-            \sin\left(\frac{2\pi(d-D_{\mathrm{peak}})}{365}\right)
-            \]
-            """
-        )
-
-        st.write(
-            tr(
-                "The model describes an illustrative seasonal cycle. "
-                "It is not calibrated to a specific station or a validated "
-                "climate projection.",
-                "แบบจำลองแสดงวงจรอุณหภูมิตามฤดูกาลเพื่อประกอบการศึกษา "
-                "ไม่ได้ปรับเทียบกับสถานีตรวจวัดเฉพาะแห่ง "
-                "และไม่ใช่การคาดการณ์ภูมิอากาศที่ผ่านการตรวจสอบ",
-            )
-        )
-
-    with st.expander(
-        tr("5. Temperature-dependent survival scenario", "5. สถานการณ์การรอดตามอุณหภูมิ")
-    ):
-        st.markdown(
-            r"""
-            \[
-            S(T)
-            =
-            S_{\max}
-            \exp\left(
-            -\frac{1}{2}
-            \left(\frac{T-T_{\mathrm{opt}}}{\sigma}\right)^2
-            \right)
-            \]
-            """
-        )
-
-        st.write(
-            tr(
-                "The displayed survival curve is illustrative. Its "
-                "parameters have not been validated against a complete "
-                "experimental dataset. The threshold-related penalty is "
-                "an additional scenario assumption.",
-                "เส้นโค้งการรอดเป็นเพียงตัวอย่างประกอบการศึกษา "
-                "พารามิเตอร์ยังไม่ได้รับการตรวจสอบกับชุดข้อมูลการทดลองที่ครบถ้วน "
-                "ส่วนการลดค่าตามเกณฑ์อุณหภูมิเป็นสมมติฐานเพิ่มเติมของสถานการณ์",
-            )
-        )
-
-    with st.expander(
-        tr("6. Monte Carlo analysis", "6. การวิเคราะห์ Monte Carlo")
-    ):
-        st.markdown(
-            r"""
-            \[
-            T_{\mathrm{sim}}(d,y,i)
-            =
-            T(d,y)+\varepsilon_{y,i}
-            \]
-
-            \[
-            \varepsilon_{y,i}
-            \sim
-            \mathcal{N}(0,\sigma_{\varepsilon}^{2})
-            \]
-            """
-        )
-
-        st.write(
-            tr(
-                "Each simulation samples one annual temperature anomaly "
-                "and applies it across the days in that year. The 2.5th "
-                "and 97.5th percentiles describe a scenario interval under "
-                "the assumed distribution, not a guarantee of real-world coverage.",
-                "แต่ละการจำลองสุ่มค่าความแปรปรวนของอุณหภูมิหนึ่งค่าต่อปี "
-                "และใช้ค่านั้นกับทุกวันในปีเดียวกัน เปอร์เซ็นไทล์ที่ 2.5 และ 97.5 "
-                "แสดงช่วงสถานการณ์ภายใต้การแจกแจงที่สมมติไว้ "
-                "ไม่ใช่การรับประกันความครอบคลุมของผลในโลกจริง",
-            )
-        )
-
-    with st.expander(
-        tr("7. Threshold scenario", "7. สถานการณ์การเลื่อนเกณฑ์")
-    ):
-        st.write(
-            tr(
-                "The threshold shift is a user-selected hypothetical "
-                "parameter. It should not be interpreted as an experimentally "
-                "confirmed adaptation or climate response.",
-                "ค่าการเลื่อนเกณฑ์เป็นพารามิเตอร์สมมติที่ผู้ใช้เลือก "
-                "ไม่ควรตีความว่าเป็นการปรับตัวหรือการตอบสนองต่อภูมิอากาศ "
-                "ที่ได้รับการยืนยันจากการทดลอง",
-            )
-        )
-
-    with st.expander(
-        tr("8. Sensitivity analysis", "8. การวิเคราะห์ความอ่อนไหว")
-    ):
-        st.write(
-            tr(
-                "Sensitivity analysis changes the input temperature while "
-                "holding other selected inputs constant. It illustrates "
-                "model behavior under the stated assumptions and does not "
-                "establish causal effects.",
-                "การวิเคราะห์ความอ่อนไหวเปลี่ยนอุณหภูมิขณะที่คงค่าปัจจัยอื่น "
-                "ตามที่กำหนดไว้ เพื่อแสดงพฤติกรรมของแบบจำลองภายใต้สมมติฐาน "
-                "แต่ไม่สามารถยืนยันความสัมพันธ์เชิงเหตุและผลได้",
-            )
-        )
-
-    with st.expander(
-        tr("9. Economic assumptions", "9. สมมติฐานทางเศรษฐศาสตร์")
-    ):
-        st.write(
-            tr(
-                "Revenue is estimated from surviving fish multiplied by "
-                "the assumed selling price. Costs include only the base "
-                "operating cost and, where specified, the cooling cost. "
-                "Labor, feed, energy, mortality outside the modeled stage, "
-                "capital, transport, and other expenses are not included "
-                "unless entered explicitly.",
-                "รายได้ประมาณจากจำนวนลูกปลารอดคูณราคาขายที่กำหนด "
-                "ต้นทุนรวมเฉพาะต้นทุนดำเนินงานพื้นฐานและต้นทุนทำความเย็น "
-                "ตามที่ระบุ ยังไม่รวมค่าแรง อาหาร พลังงาน การตายที่อยู่นอกช่วง "
-                "ที่จำลอง เงินลงทุน การขนส่ง และค่าใช้จ่ายอื่น "
-                "เว้นแต่จะนำมาระบุในการคำนวณอย่างชัดเจน",
-            )
-        )
-
-    with st.expander(
-        tr("10. Limitations and reproducibility", "10. ข้อจำกัดและการทำซ้ำ")
-    ):
-        st.markdown(
-            tr(
-                """
-                - The biological reference dataset contains only two temperatures.
-                - The climate model is illustrative and not locally calibrated.
-                - The survival curve and threshold penalty are scenario assumptions.
-                - Monte Carlo uncertainty reflects only the specified random anomaly.
-                - Economic estimates exclude costs that are not entered.
-                - Use the random seed to reproduce the same simulation.
-                - Validate assumptions with experimental data before using results
-                  for operational or policy decisions.
-                """,
-                """
-                - ข้อมูลอ้างอิงทางชีววิทยามีเพียงสองอุณหภูมิ
-                - แบบจำลองภูมิอากาศเป็นตัวอย่างและไม่ได้ปรับเทียบเฉพาะพื้นที่
-                - เส้นโค้งการรอดและค่าปรับตามเกณฑ์เป็นสมมติฐานของสถานการณ์
-                - ความไม่แน่นอนจาก Monte Carlo สะท้อนเฉพาะค่าความแปรปรวนที่กำหนด
-                - ผลทางเศรษฐศาสตร์ไม่รวมต้นทุนที่ไม่ได้กรอก
-                - สามารถใช้ค่าเริ่มต้นสุ่มเดิมเพื่อทำซ้ำการจำลอง
-                - ควรตรวจสอบสมมติฐานกับข้อมูลทดลองก่อนใช้ตัดสินใจในการดำเนินงานหรือนโยบาย
-                """,
-            )
-        )
-
-    st.info(
-        tr(
-            "This dashboard is intended for exploratory analysis and "
-            "education. It does not replace experimental validation, "
-            "professional advice, or a locally validated model.",
-            "แดชบอร์ดนี้จัดทำขึ้นเพื่อการสำรวจและการศึกษา "
-            "ไม่สามารถทดแทนการตรวจสอบด้วยการทดลอง คำแนะนำจากผู้เชี่ยวชาญ "
-            "หรือแบบจำลองที่ผ่านการตรวจสอบในพื้นที่ได้",
-        )
-    )
-
-
-# ============================================================
-# 15. FOOTER
-# ============================================================
-st.divider()
-
-st.caption(
-    tr(
-        "Catfish Thermal Risk Dashboard | Exploratory model — "
-        "interpret outputs with the stated assumptions and limitations.",
-        "แดชบอร์ดความเสี่ยงด้านอุณหภูมิของปลาดุก | "
-        "แบบจำลองเพื่อการศึกษา — โปรดแปลผลภายใต้สมมติฐานและข้อจำกัดที่ระบุ",
-    )
-)
