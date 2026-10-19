@@ -4,22 +4,72 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
+
 st.set_page_config(
     page_title="Catfish Thermal Risk Dashboard",
     page_icon="🐟",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🐟 Catfish Thermal Risk Dashboard")
-st.caption("Thermal effects, hatchery economics and climate scenarios")
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #F4F8FA;
+    }
 
-# Reference data from Supplementary File S1
-REFERENCE = pd.DataFrame({
-    "Temperature (°C)": [29.0, 32.0],
-    "Fertilization rate": [0.677, 0.590],
-    "Hatching rate": [0.434, 0.266],
-    "Survival rate to 72 h": [0.449, 0.000],
-})
+    [data-testid="stSidebar"] {
+        background-color: #E8F1F4;
+        border-right: 1px solid #D4E2E8;
+    }
+
+    h1 {
+        color: #123B4A;
+        font-weight: 750;
+        letter-spacing: -0.5px;
+    }
+
+    h2, h3 {
+        color: #205B68;
+    }
+
+    [data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #DCE7EC;
+        padding: 18px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(20, 60, 75, 0.05);
+    }
+
+    div[data-testid="stPlotlyChart"] {
+        background-color: #FFFFFF;
+        border: 1px solid #DCE7EC;
+        border-radius: 12px;
+        padding: 10px;
+    }
+
+    div[data-testid="stAlert"] {
+        border-radius: 10px;
+    }
+
+    footer {
+        visibility: hidden;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+
+st.title("🐟 Catfish Thermal Risk Dashboard")
+st.caption(
+    "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
+)
+
+st.markdown(
+    "Interactive decision-support prototype for hybrid catfish hatchery research."
+)
+st.divider()
+
 
 def biological_rates(temp):
     """Illustrative interpolation between the two supplied observations."""
