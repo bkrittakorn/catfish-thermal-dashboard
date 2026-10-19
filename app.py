@@ -126,7 +126,8 @@ page = st.sidebar.radio(
         "Hatchery Calculator",
         "Climate Simulation",
         "Sensitivity Analysis",
-        "Methods"
+        "Methods",
+        "AquaMonitor",
     ]
 )
 
@@ -886,3 +887,7 @@ elif page == "Methods":
         "20260929 as the default, and 10,000 Monte Carlo simulations. "
         "Downloaded CSV files contain scenario outputs for further inspection."
     )
+    
+elif page == "AquaMonitor":
+    from aquamonitor import run_aquamonitor
+    run_aquamonitor()
