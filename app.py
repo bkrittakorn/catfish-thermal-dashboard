@@ -629,7 +629,7 @@ elif page == "Sensitivity Analysis":
     )
 
     
-        # Keep all scenario temperatures within the dashboard's 25–36°C range
+    # Keep all scenario temperatures within the dashboard's 25–36°C range
     requested_min = base_temp + temp_range[0]
     requested_max = base_temp + temp_range[1]
 
