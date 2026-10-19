@@ -644,7 +644,15 @@ elif page == "Sensitivity Analysis":
         ])
     else:
         scenario_temps = np.linspace(scenario_min, scenario_max, 31)
-
+        if (
+    scenario_min > requested_min
+    or scenario_max < requested_max
+    ):
+    st.info(
+        "Some requested temperatures fall outside the supported "
+        "25–36°C range. The sensitivity analysis uses only "
+        "temperatures within this range."
+    )
     sens_rows = []
     for temp in scenario_temps:
         delta = temp - base_temp
@@ -822,12 +830,14 @@ elif page == "Methods":
 
     st.markdown("### 6. Monte Carlo uncertainty")
     st.write(
-        "The multiyear climate scenario uses 10,000 simulations. Each "
-        "simulated year receives one normally distributed temperature "
-        "anomaly shared by all days in that year. The default anomaly "
-        "standard deviation is 0.30°C. The displayed 95% simulation interval "
-        "is based on the 2.5th and 97.5th percentiles of simulated annual "
-        "anomalies."
+    "The multiyear climate scenario uses 10,000 Monte Carlo simulations. "
+    "Each simulated year receives one normally distributed temperature "
+    "anomaly shared by all days in that year. The default anomaly "
+    "standard deviation is 0.30°C. The displayed band is based on the "
+    "2.5th and 97.5th percentiles of simulated annual anomalies and "
+    "represents a simulation interval under the specified assumptions, "
+    "not a confidence interval estimated from observed local climate data "
+    "or a calibrated climate forecast."
     )
 
     st.markdown("### 7. Threshold scenario")
