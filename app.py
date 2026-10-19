@@ -457,16 +457,20 @@ elif page == "Climate Simulation":
 
     st.markdown("### B. Multiyear stochastic climate scenario")
     st.caption(
-        "The shaded band is the 2.5th–97.5th percentile of annual anomalies "
-        "from 10,000 simulations. It represents uncertainty under the chosen "
-        "model assumptions, not a validated climate projection."
+        "The main line shows the daily seasonal temperature baseline, "
+        "including the assumed long-term warming trend and seasonal-amplitude "
+        "change. The shaded band adds the 2.5th and 97.5th percentiles of "
+        "annual temperature anomalies from 10,000 Monte Carlo simulations. "
+        "The band represents uncertainty under the specified scenario "
+        "assumptions, not a calibrated local climate forecast. "
+        "The annual summary table reports values at each year's baseline."
     )
 
     fig = px.line(
         climate_df,
         x="Year",
         y="Mean scenario temperature (°C)",
-        title="Illustrative 2026–2036 temperature scenario"
+        title="Daily Temperature Scenario and Annual Uncertainty (2026–2036)"
     )
     fig.add_scatter(
         x=climate_df["Year"],
