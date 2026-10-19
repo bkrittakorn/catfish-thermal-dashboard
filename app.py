@@ -126,8 +126,8 @@ page = st.sidebar.radio(
         "Hatchery Calculator",
         "Climate Simulation",
         "Sensitivity Analysis",
-        "Methods",
         "AquaMonitor",
+        "Methods",
     ]
 )
 
