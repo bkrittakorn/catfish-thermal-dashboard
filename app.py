@@ -629,7 +629,7 @@ elif page == "Sensitivity Analysis":
     )
 
     
-    # Keep all scenario temperatures within the dashboard's 25–36°C range
+        # Keep all scenario temperatures within the dashboard's 25–36°C range
     requested_min = base_temp + temp_range[0]
     requested_max = base_temp + temp_range[1]
 
@@ -644,15 +644,18 @@ elif page == "Sensitivity Analysis":
         ])
     else:
         scenario_temps = np.linspace(scenario_min, scenario_max, 31)
-        if (
-    scenario_min > requested_min
-    or scenario_max < requested_max
+
+    # Inform the user if the requested range was clipped
+    if (
+        scenario_min > requested_min
+        or scenario_max < requested_max
     ):
-    st.info(
-        "Some requested temperatures fall outside the supported "
-        "25–36°C range. The sensitivity analysis uses only "
-        "temperatures within this range."
-    )
+        st.info(
+            "Some requested temperatures fall outside the supported "
+            "25–36°C range. The sensitivity analysis uses only "
+            "temperatures within this range."
+        )
+
     sens_rows = []
     for temp in scenario_temps:
         delta = temp - base_temp
