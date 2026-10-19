@@ -108,18 +108,65 @@ def biological_rates(temp):
     )
     return float(fert), float(hatch), float(survival)
 
-st.sidebar.header("Dashboard navigation")
-page = st.sidebar.radio(
-    "Choose a page",
-    [
-        "Overview",
-        "Hatchery Calculator",
-        "Climate Simulation",
-        "Sensitivity Analysis",
-        "AquaMonitor",
-        "Methods",
-    ]
+
+# Language settings
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+st.sidebar.markdown("### 🌐 Language / ภาษา")
+
+language = st.sidebar.radio(
+    "Select language / เลือกภาษา",
+    ["English", "ไทย"],
+    index=["English", "ไทย"].index(st.session_state.language),
+    horizontal=True,
+    key="language_selector",
+    label_visibility="collapsed"
 )
+
+st.session_state.language = language
+
+# Translated navigation labels
+PAGE_LABELS = {
+    "Overview": {
+        "English": "Overview",
+        "ไทย": "ภาพรวม"
+    },
+    "Hatchery Calculator": {
+        "English": "Hatchery Calculator",
+        "ไทย": "เครื่องคำนวณโรงเพาะฟัก"
+    },
+    "Climate Simulation": {
+        "English": "Climate Simulation",
+        "ไทย": "จำลองสภาพภูมิอากาศ"
+    },
+    "Sensitivity Analysis": {
+        "English": "Sensitivity Analysis",
+        "ไทย": "วิเคราะห์ความอ่อนไหว"
+    },
+    "AquaMonitor": {
+        "English": "AquaMonitor",
+        "ไทย": "วิเคราะห์คุณภาพน้ำ"
+    },
+    "Methods": {
+        "English": "Methods",
+        "ไทย": "วิธีการและข้อจำกัด"
+    }
+}
+
+st.sidebar.header(
+    "Dashboard navigation"
+    if language == "English"
+    else "เมนูหลัก"
+)
+
+page = st.sidebar.radio(
+    "Choose a page" if language == "English" else "เลือกหน้า",
+    list(PAGE_LABELS.keys()),
+    format_func=lambda p: PAGE_LABELS[p][language],
+    key="page_navigation"
+)
+
 
 st.sidebar.divider()
 st.sidebar.header("Hatchery assumptions")
@@ -140,14 +187,33 @@ cooling_cost = st.sidebar.number_input(
 )
 
 
+
 if page == "Overview":
-    st.title("Catfish Thermal Risk Dashboard")
-    st.caption(
-        "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
-    )
-    st.markdown(
-        "Interactive decision-support prototype for hybrid catfish hatchery research."
-    )
+    if language == "English":
+        st.title("Catfish Thermal Risk Dashboard")
+        st.caption(
+            "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
+        )
+        st.markdown(
+            "Interactive decision-support prototype for hybrid catfish hatchery research."
+        )
+        st.subheader("Overview")
+        st.caption(
+            "Exploratory dashboard for temperature-related hatchery scenarios"
+        )
+    else:
+        st.title("แดชบอร์ดความเสี่ยงด้านอุณหภูมิของปลาดุก")
+        st.caption(
+            "ความเสี่ยงด้านอุณหภูมิ • ประสิทธิภาพโรงเพาะฟัก • สถานการณ์ภูมิอากาศ"
+        )
+        st.markdown(
+            "เครื่องมือสนับสนุนการตัดสินใจเบื้องต้นสำหรับการวิจัยโรงเพาะฟักปลาดุกลูกผสม"
+        )
+        st.subheader("ภาพรวม")
+        st.caption(
+            "แดชบอร์ดสำหรับสำรวจสถานการณ์อุณหภูมิที่เกี่ยวข้องกับโรงเพาะฟัก"
+        )
+
     st.divider()
 
     st.subheader("Overview")
