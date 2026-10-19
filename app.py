@@ -437,6 +437,14 @@ elif page == "Sensitivity Analysis":
         "uncertainty. Results depend on the illustrative interpolation model."
     )
 
+def seasonal_temperature(day, year_index):
+    """Seasonal temperature scenario from Supplementary File S1."""
+    return (
+        TMEAN
+        + ALPHA * year_index
+        + (AMP0 + BETA * year_index)
+        * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
+    )
 
 elif page == "Methods":
     st.subheader("Methods and limitations")
