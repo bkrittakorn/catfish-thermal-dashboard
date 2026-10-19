@@ -40,7 +40,13 @@ def biological_rates(temp):
 st.sidebar.header("Dashboard navigation")
 page = st.sidebar.radio(
     "Choose a page",
-    ["Overview", "Hatchery Calculator", "Climate Simulation", "Methods"]
+    [
+        "Overview",
+        "Hatchery Calculator",
+        "Climate Simulation",
+        "Sensitivity Analysis",
+        "Methods"
+    ]
 )
 
 st.sidebar.divider()
@@ -242,6 +248,122 @@ elif page == "Climate Simulation":
         "projections. Monte Carlo results represent uncertainty under these "
         "assumptions, not validated probabilities of farm outcomes."
     )
+
+
+elif page == "Sensitivity Analysis":
+    st.subheader("Sensitivity Analysis")
+    st.write(
+        "Explore how changes in key assumptions affect estimated survivors "
+        "and the illustrative net financial result."
+    )
+
+    st.markdown("### Set baseline assumptions")
+    s1, s2 = st.columns(2)
+
+    with s1:
+        base_temp = st.slider(
+            "Baseline temperature (°C)", 25.0, 36.0, 29.0, 0.5
+        )
+        temp_range = st.slider(
+            "Temperature change range (°C)",
+            -3.0, 3.0, (-2.0, 2.0), 0.5
+        )
+        base_eggs = st.number_input(
+            "Eggs for analysis", min_value=1,
+            value=5_000_000, step=100_000, key="sens_eggs"
+        )
+
+    with s2:
+        price = st.number_input(
+            "Price per fry (THB)", min_value=0.0,
+            value=1.50, step=0.10, key="sens_price"
+        )
+        operating = st.number_input(
+            "Operating cost (THB)", min_value=0.0,
+            value=100_000.0, step=5_000.0, key="sens_cost"
+        )
+        cooling = st.number_input(
+            "Cooling cost (THB)", min_value=0.0,
+            value=80_000.0, step=5_000.0, key="sens_cooling"
+        )
+
+    def calculate_scenario(temp):
+        f, h, s = biological_rates(temp)
+        survivors = base_eggs * f * h * s
+        revenue = survivors * price
+        net = revenue - operating - cooling
+        return survivors, revenue, net
+
+    baseline_survivors, baseline_revenue, baseline_net = (
+        calculate_scenario(base_temp)
+    )
+
+    delta_temps = np.linspace(
+        temp_range[0], temp_range[1], 31
+    )
+
+    sens_rows = []
+    for delta in delta_temps:
+        t = base_temp + delta
+        survivors, revenue, net = calculate_scenario(t)
+        sens_rows.append({
+            "Temperature change (°C)": delta,
+            "Scenario temperature (°C)": t,
+            "Estimated survivors": survivors,
+            "Revenue (THB)": revenue,
+            "Net result (THB)": net
+        })
+
+    sens_df = pd.DataFrame(sens_rows)
+
+    st.markdown("### Effect of temperature change")
+    st.plotly_chart(
+        px.line(
+            sens_df,
+            x="Temperature change (°C)",
+            y="Estimated survivors",
+            markers=True,
+            title="Estimated survivors across temperature scenarios"
+        ),
+        use_container_width=True
+    )
+
+    st.plotly_chart(
+        px.line(
+            sens_df,
+            x="Temperature change (°C)",
+            y="Net result (THB)",
+            markers=True,
+            title="Illustrative net financial result across scenarios"
+        ),
+        use_container_width=True
+    )
+
+    st.markdown("### Scenario results")
+    st.dataframe(
+        sens_df.style.format({
+            "Temperature change (°C)": "{:+.1f}",
+            "Scenario temperature (°C)": "{:.1f}",
+            "Estimated survivors": "{:,.0f}",
+            "Revenue (THB)": "฿{:,.0f}",
+            "Net result (THB)": "฿{:,.0f}"
+        }),
+        use_container_width=True
+    )
+
+    st.download_button(
+        "Download sensitivity results (CSV)",
+        data=sens_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_sensitivity_analysis.csv",
+        mime="text/csv"
+    )
+
+    st.info(
+        "This sensitivity analysis varies temperature while holding the other "
+        "inputs fixed. It does not establish causal effects or biological "
+        "uncertainty. Results depend on the illustrative interpolation model."
+    )
+
 
 elif page == "Methods":
     st.subheader("Methods and limitations")
