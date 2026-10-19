@@ -65,7 +65,7 @@ st.markdown("""
 
 
 
-st.title("🐟 Catfish Thermal Risk Dashboard")
+st.title(" Catfish Thermal Risk Dashboard")
 st.caption(
     "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
 )
