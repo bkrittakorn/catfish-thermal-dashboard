@@ -198,139 +198,234 @@ elif page == "Hatchery Calculator":
 elif page == "Climate Simulation":
     st.subheader("Climate Simulation")
     st.write(
-        "Explore how hypothetical temperature changes may affect biological "
-        "rates and hatchery outcomes. This is a scenario tool, not a climate forecast."
+        "Reproducible seasonal and multiyear temperature scenarios "
+        "based on Supplementary File S1. These are illustrative scenarios, "
+        "not calibrated local climate forecasts."
     )
 
-    c1, c2, c3 = st.columns(3)
+    # Parameters from Supplementary File S1
+    TMEAN = 28.5
+    AMP0 = 3.5
+    DPEAK = 115
+    ALPHA = 0.08
+    BETA = 0.03
+    E_SD = 0.30
+    TOPT = 29.0
+    SIGMA = 1.0
+    SMAX = 44.9
+    TCRIT0 = 30.75
+    DELTA_G = 0.15
+    SEED = 20260929
+    N_MONTE_CARLO = 10000
+
+    # Scenario controls
+    c1, c2 = st.columns(2)
     with c1:
-        start_temp = st.slider(
-            "Starting temperature (°C)", 25.0, 34.0, 29.0, 0.5
+        anomaly_sd = st.slider(
+            "Annual temperature anomaly SD (°C)",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(E_SD),
+            step=0.05,
+            help="S1 default: 0.30°C. One anomaly is shared by all days in each year."
         )
     with c2:
-        warming = st.slider(
-            "Hypothetical warming (°C/year)", 0.0, 0.20, 0.03, 0.01
-        )
-    with c3:
-        years = st.slider("Projection period (years)", 1, 20, 10)
-
-    st.markdown("### Annual scenario")
-    annual = pd.DataFrame({"Year": np.arange(0, years + 1)})
-    annual["Temperature (°C)"] = start_temp + annual["Year"] * warming
-
-    rates = annual["Temperature (°C)"].apply(biological_rates)
-    annual["Fertilization"] = [r[0] for r in rates]
-    annual["Hatching"] = [r[1] for r in rates]
-    annual["Survival to 72 h"] = [r[2] for r in rates]
-    annual["Estimated survivors"] = (
-        eggs * annual["Fertilization"] * annual["Hatching"]
-        * annual["Survival to 72 h"]
-    )
-
-    st.plotly_chart(
-        px.line(
-            annual, x="Year", y="Temperature (°C)",
-            markers=True, title="Hypothetical temperature trajectory"
-        ),
-        use_container_width=True
-    )
-
-    rate_data = annual.melt(
-        id_vars="Year",
-        value_vars=["Fertilization", "Hatching", "Survival to 72 h"],
-        var_name="Biological indicator",
-        value_name="Rate"
-    )
-    st.plotly_chart(
-        px.line(
-            rate_data, x="Year", y="Rate",
-            color="Biological indicator", markers=True,
-            title="Illustrative biological rates over time"
-        ).update_yaxes(tickformat=".0%", range=[0, 1]),
-        use_container_width=True
-    )
-
-    st.plotly_chart(
-        px.line(
-            annual, x="Year", y="Estimated survivors",
-            markers=True, title="Estimated survivors by scenario year"
-        ),
-        use_container_width=True
-    )
-
-    st.markdown("### Monte Carlo temperature uncertainty")
-    st.write(
-        "Random temperature anomalies are simulated around the final scenario "
-        "temperature. The anomaly spread is user-selected for exploration."
-    )
-
-    mc1, mc2 = st.columns(2)
-    with mc1:
-        sd = st.slider(
-            "Temperature anomaly standard deviation (°C)",
-            0.0, 2.0, 0.5, 0.1
-        )
-    with mc2:
-        simulations = st.selectbox(
-            "Number of simulations", [1000, 5000, 10000], index=1
+        delta_g = st.slider(
+            "Hypothetical threshold change Δg (°C/year)",
+            min_value=0.10,
+            max_value=0.20,
+            value=float(DELTA_G),
+            step=0.01,
+            help="Sensitivity assumption, not a measured evolutionary rate."
         )
 
     seed = st.number_input(
-        "Random seed (for reproducibility)",
-        min_value=0, max_value=999999, value=42, step=1
+        "Random seed",
+        min_value=0,
+        max_value=99999999,
+        value=int(SEED),
+        step=1
     )
 
-    rng = np.random.default_rng(int(seed))
-    final_temp = float(annual["Temperature (°C)"].iloc[-1])
-    simulated_temps = rng.normal(final_temp, sd, int(simulations))
-    simulated_temps = np.clip(simulated_temps, 25.0, 36.0)
+    # Panel A: seasonal cycle for a representative year
+    day = np.arange(1, 366)
+    temp_day = (
+        TMEAN
+        + AMP0 * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
+    )
+    survival_pct = SMAX * np.exp(
+        -0.5 * ((temp_day - TOPT) / SIGMA) ** 2
+    )
 
-    sim_rates = [biological_rates(t) for t in simulated_temps]
-    sim_survivors = np.array([
-        eggs * f * h * s for f, h, s in sim_rates
-    ])
-
-    mc_df = pd.DataFrame({
-        "Simulated temperature (°C)": simulated_temps,
-        "Estimated survivors": sim_survivors
+    seasonal_df = pd.DataFrame({
+        "Day of year": day,
+        "Water temperature (°C)": temp_day,
+        "72-h larval survival (%)": survival_pct
     })
 
-    q05, q50, q95 = np.percentile(sim_survivors, [5, 50, 95])
-    m1, m2, m3 = st.columns(3)
-    m1.metric("5th percentile survivors", f"{q05:,.0f}")
-    m2.metric("Median survivors", f"{q50:,.0f}")
-    m3.metric("95th percentile survivors", f"{q95:,.0f}")
+    st.markdown("### A. Annual seasonal vulnerability cycle")
+    st.caption(
+        "The survival curve is the illustrative Gaussian response specified "
+        "in S1; it is not the same as the observed fertilization or hatching rates."
+    )
 
     st.plotly_chart(
-        px.histogram(
-            mc_df, x="Estimated survivors", nbins=40,
-            title="Monte Carlo distribution of estimated survivors"
+        px.line(
+            seasonal_df,
+            x="Day of year",
+            y="Water temperature (°C)",
+            title="Seasonal water temperature scenario"
         ),
         use_container_width=True
     )
 
+    st.plotly_chart(
+        px.line(
+            seasonal_df,
+            x="Day of year",
+            y="72-h larval survival (%)",
+            title="Illustrative temperature-dependent 72-h survival"
+        ).update_yaxes(range=[0, 50]),
+        use_container_width=True
+    )
+
+    # Panel B: multiyear climate scenario
+    years = np.arange(2026, 2037)
+    year_index = np.arange(len(years))
+    n_days = len(years) * 365
+
+    time_year = 2026 + np.arange(n_days) / 365.0
+    yindex = np.minimum(np.arange(n_days) // 365, len(years) - 1)
+    doy = (np.arange(n_days) % 365) + 1
+
+    base_temp = (
+        TMEAN
+        + ALPHA * yindex
+        + (AMP0 + BETA * yindex)
+        * np.cos(2 * np.pi * (doy - DPEAK) / 365.0)
+    )
+
+    # One random anomaly per year and simulation, shared across that year's days
+    rng = np.random.default_rng(int(seed))
+    anomalies = rng.normal(
+        0.0, anomaly_sd, size=(N_MONTE_CARLO, len(years))
+    )
+
+    q025 = np.quantile(anomalies, 0.025, axis=0)
+    q975 = np.quantile(anomalies, 0.975, axis=0)
+
+    mean_temp = base_temp
+    lower_temp = base_temp + q025[yindex]
+    upper_temp = base_temp + q975[yindex]
+
+    tcrit_static = np.full(n_days, TCRIT0)
+    tcrit_scenario = TCRIT0 + delta_g * (time_year - 2026)
+
+    climate_df = pd.DataFrame({
+        "Year": time_year,
+        "Mean scenario temperature (°C)": mean_temp,
+        "Lower 95% simulation interval (°C)": lower_temp,
+        "Upper 95% simulation interval (°C)": upper_temp,
+        "Static threshold (°C)": tcrit_static,
+        "Hypothetical changing threshold (°C)": tcrit_scenario
+    })
+
+    st.markdown("### B. Multiyear stochastic climate scenario")
+    st.caption(
+        "The shaded band is the 2.5th–97.5th percentile of annual anomalies "
+        "from 10,000 simulations. It represents uncertainty under the chosen "
+        "model assumptions, not a validated climate projection."
+    )
+
+    fig = px.line(
+        climate_df,
+        x="Year",
+        y="Mean scenario temperature (°C)",
+        title="Illustrative 2026–2036 temperature scenario"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Upper 95% simulation interval (°C)"],
+        mode="lines",
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo="skip"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Lower 95% simulation interval (°C)"],
+        mode="lines",
+        line=dict(width=0),
+        fill="tonexty",
+        name="95% simulation interval",
+        hoverinfo="skip"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Static threshold (°C)"],
+        mode="lines",
+        name="Static threshold"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Hypothetical changing threshold (°C)"],
+        mode="lines",
+        name="Hypothetical changing threshold"
+    )
+    fig.update_layout(
+        xaxis_title="Projection year",
+        yaxis_title="Water temperature (°C)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Annual summary of the seasonal model and Monte Carlo interval
+    annual_df = pd.DataFrame({
+        "Year": years,
+        "Mean annual temperature baseline (°C)": [
+            TMEAN + ALPHA * i for i in year_index
+        ],
+        "Seasonal amplitude (°C)": [
+            AMP0 + BETA * i for i in year_index
+        ],
+        "Annual anomaly lower 95% (°C)": q025,
+        "Annual anomaly upper 95% (°C)": q975,
+        "Static threshold (°C)": TCRIT0,
+        "Hypothetical changing threshold (°C)": (
+            TCRIT0 + delta_g * year_index
+        )
+    })
+
+    st.markdown("### Annual scenario data")
+    st.dataframe(annual_df, use_container_width=True)
+
     st.download_button(
-        "Download annual scenario CSV",
-        data=annual.to_csv(index=False).encode("utf-8-sig"),
-        file_name="catfish_climate_scenario.csv",
+        "Download annual climate scenario CSV",
+        data=annual_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_climate_scenario_s1.csv",
         mime="text/csv"
     )
+
     st.download_button(
-        "Download Monte Carlo CSV",
-        data=mc_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="catfish_monte_carlo.csv",
+        "Download daily seasonal scenario CSV",
+        data=seasonal_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_seasonal_scenario_s1.csv",
+        mime="text/csv"
+    )
+
+    st.download_button(
+        "Download multiyear daily simulation CSV",
+        data=climate_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_multiyear_climate_s1.csv",
         mime="text/csv"
     )
 
     st.warning(
-        "Important limitation: the supplied observations are only at 29°C and "
-        "32°C. This demo uses interpolation between those values and holds the "
-        "rates constant outside that interval. The warming rate and random "
-        "anomaly distribution are user-defined assumptions, not local climate "
-        "projections. Monte Carlo results represent uncertainty under these "
-        "assumptions, not validated probabilities of farm outcomes."
+        "Limitations: the seasonal temperatures, annual warming trend, "
+        "anomaly distribution, and changing threshold are scenario assumptions "
+        "from Supplementary File S1. They are not locally calibrated forecasts. "
+        "The survival curve is an illustrative equation and must not be "
+        "interpreted as a validated prediction of farm-level survival."
     )
-
 
 elif page == "Sensitivity Analysis":
     st.subheader("Sensitivity Analysis")
