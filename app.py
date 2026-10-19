@@ -94,6 +94,15 @@ SMAX = 44.9
 TCRIT0 = 30.75
 DELTA_G = 0.15
 
+def seasonal_temperature(day, year_index):
+    """Seasonal temperature scenario from Supplementary File S1."""
+    return (
+        TMEAN
+        + ALPHA * year_index
+        + (AMP0 + BETA * year_index)
+        * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
+    )
+
 def biological_rates(temp):
     """Illustrative interpolation between the two supplied observations."""
     fert = np.interp(
@@ -435,15 +444,6 @@ elif page == "Sensitivity Analysis":
         "This sensitivity analysis varies temperature while holding the other "
         "inputs fixed. It does not establish causal effects or biological "
         "uncertainty. Results depend on the illustrative interpolation model."
-    )
-
-def seasonal_temperature(day, year_index):
-    """Seasonal temperature scenario from Supplementary File S1."""
-    return (
-        TMEAN
-        + ALPHA * year_index
-        + (AMP0 + BETA * year_index)
-        * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
     )
 
 elif page == "Methods":
