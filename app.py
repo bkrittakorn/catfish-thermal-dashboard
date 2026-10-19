@@ -17,6 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 st.markdown("""
 <style>
     .stApp {
@@ -63,17 +64,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-
-st.title(" Catfish Thermal Risk Dashboard")
-st.caption(
-    "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
-)
-
-st.markdown(
-    "Interactive decision-support prototype for hybrid catfish hatchery research."
-)
-st.divider()
 
 # Supplementary File S1: reproducible scenario parameters
 SEED = 20260929
@@ -151,7 +141,17 @@ cooling_cost = st.sidebar.number_input(
 
 
 if page == "Overview":
+    st.title("Catfish Thermal Risk Dashboard")
+    st.caption(
+        "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
+    )
+    st.markdown(
+        "Interactive decision-support prototype for hybrid catfish hatchery research."
+    )
+    st.divider()
+
     st.subheader("Overview")
+
     st.caption(
         "Exploratory dashboard for temperature-related hatchery scenarios"
     )
