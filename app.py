@@ -427,11 +427,13 @@ elif page == "Climate Simulation":
         "interpreted as a validated prediction of farm-level survival."
     )
 
+
 elif page == "Sensitivity Analysis":
     st.subheader("Sensitivity Analysis")
     st.write(
-        "Explore how changes in key assumptions affect estimated survivors "
-        "and the illustrative net financial result."
+        "Explore how temperature assumptions affect estimated larval "
+        "survival and illustrative financial outcomes. All results depend "
+        "on the selected assumptions and the biological-rate model."
     )
 
     st.markdown("### Set baseline assumptions")
@@ -439,40 +441,85 @@ elif page == "Sensitivity Analysis":
 
     with s1:
         base_temp = st.slider(
-            "Baseline temperature (°C)", 25.0, 36.0, 29.0, 0.5
+            "Baseline temperature (°C)",
+            25.0, 36.0, 29.0, 0.5,
+            key="sens_base_temp"
         )
         temp_range = st.slider(
             "Temperature change range (°C)",
-            -3.0, 3.0, (-2.0, 2.0), 0.5
+            -3.0, 3.0, (-2.0, 2.0), 0.5,
+            key="sens_temp_range"
         )
         base_eggs = st.number_input(
-            "Eggs for analysis", min_value=1,
-            value=5_000_000, step=100_000, key="sens_eggs"
+            "Initial eggs",
+            min_value=1,
+            value=5_000_000,
+            step=100_000,
+            key="sens_eggs"
         )
 
     with s2:
         price = st.number_input(
-            "Price per fry (THB)", min_value=0.0,
-            value=1.50, step=0.10, key="sens_price"
+            "Price per fry (THB)",
+            min_value=0.0,
+            value=1.50,
+            step=0.10,
+            key="sens_price"
         )
         operating = st.number_input(
-            "Operating cost (THB)", min_value=0.0,
-            value=100_000.0, step=5_000.0, key="sens_cost"
+            "Base operating cost (THB)",
+            min_value=0.0,
+            value=100_000.0,
+            step=5_000.0,
+            key="sens_cost"
         )
         cooling = st.number_input(
-            "Cooling cost (THB)", min_value=0.0,
-            value=80_000.0, step=5_000.0, key="sens_cooling"
+            "Cooling cost (THB)",
+            min_value=0.0,
+            value=80_000.0,
+            step=5_000.0,
+            key="sens_cooling"
         )
+
+    include_cooling = st.checkbox(
+        "Include cooling cost in all scenarios",
+        value=False,
+        help=(
+            "If checked, the specified cooling cost is deducted from every "
+            "scenario. This does not model cooling effectiveness or energy use."
+        ),
+        key="sens_include_cooling"
+    )
+
+    applied_cooling_cost = cooling if include_cooling else 0.0
+    total_cost = operating + applied_cooling_cost
 
     def calculate_scenario(temp):
         f, h, s = biological_rates(temp)
         survivors = base_eggs * f * h * s
         revenue = survivors * price
-        net = revenue - operating - cooling
-        return survivors, revenue, net
+        net = revenue - total_cost
+        return f, h, s, survivors, revenue, net
 
-    baseline_survivors, baseline_revenue, baseline_net = (
-        calculate_scenario(base_temp)
+    (
+        base_fert,
+        base_hatch,
+        base_survival,
+        baseline_survivors,
+        baseline_revenue,
+        baseline_net
+    ) = calculate_scenario(base_temp)
+
+    st.markdown("### Baseline results")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Estimated survivors", f"{baseline_survivors:,.0f}")
+    m2.metric("Estimated revenue", f"฿{baseline_revenue:,.0f}")
+    m3.metric("Illustrative net result", f"฿{baseline_net:,.0f}")
+
+    st.caption(
+        f"Baseline rates: fertilization {base_fert:.1%}, "
+        f"hatching {base_hatch:.1%}, 72-h survival {base_survival:.1%}. "
+        f"Costs deducted: ฿{total_cost:,.0f}."
     )
 
     delta_temps = np.linspace(
@@ -481,14 +528,22 @@ elif page == "Sensitivity Analysis":
 
     sens_rows = []
     for delta in delta_temps:
-        t = base_temp + delta
-        survivors, revenue, net = calculate_scenario(t)
+        temp = base_temp + delta
+        f, h, s, survivors, revenue, net = calculate_scenario(temp)
         sens_rows.append({
             "Temperature change (°C)": delta,
-            "Scenario temperature (°C)": t,
+            "Scenario temperature (°C)": temp,
+            "Fertilization rate": f,
+            "Hatching rate": h,
+            "72-h survival rate": s,
             "Estimated survivors": survivors,
             "Revenue (THB)": revenue,
-            "Net result (THB)": net
+            "Operating cost (THB)": operating,
+            "Cooling cost included (THB)": applied_cooling_cost,
+            "Total costs (THB)": total_cost,
+            "Net result (THB)": net,
+            "Change in survivors vs baseline": survivors - baseline_survivors,
+            "Change in net result vs baseline (THB)": net - baseline_net
         })
 
     sens_df = pd.DataFrame(sens_rows)
@@ -501,7 +556,7 @@ elif page == "Sensitivity Analysis":
             y="Estimated survivors",
             markers=True,
             title="Estimated survivors across temperature scenarios"
-        ),
+        ).update_yaxes(rangemode="tozero"),
         use_container_width=True
     )
 
@@ -516,14 +571,33 @@ elif page == "Sensitivity Analysis":
         use_container_width=True
     )
 
+    st.plotly_chart(
+        px.line(
+            sens_df,
+            x="Temperature change (°C)",
+            y="Change in survivors vs baseline",
+            markers=True,
+            title="Change in estimated survivors relative to baseline"
+        ),
+        use_container_width=True
+    )
+
     st.markdown("### Scenario results")
     st.dataframe(
         sens_df.style.format({
             "Temperature change (°C)": "{:+.1f}",
             "Scenario temperature (°C)": "{:.1f}",
+            "Fertilization rate": "{:.1%}",
+            "Hatching rate": "{:.1%}",
+            "72-h survival rate": "{:.1%}",
             "Estimated survivors": "{:,.0f}",
             "Revenue (THB)": "฿{:,.0f}",
-            "Net result (THB)": "฿{:,.0f}"
+            "Operating cost (THB)": "฿{:,.0f}",
+            "Cooling cost included (THB)": "฿{:,.0f}",
+            "Total costs (THB)": "฿{:,.0f}",
+            "Net result (THB)": "฿{:,.0f}",
+            "Change in survivors vs baseline": "{:+,.0f}",
+            "Change in net result vs baseline (THB)": "฿{:+,.0f}"
         }),
         use_container_width=True
     )
@@ -536,9 +610,13 @@ elif page == "Sensitivity Analysis":
     )
 
     st.info(
-        "This sensitivity analysis varies temperature while holding the other "
-        "inputs fixed. It does not establish causal effects or biological "
-        "uncertainty. Results depend on the illustrative interpolation model."
+        "Interpretation and limitations: this analysis changes temperature "
+        "while holding egg number, price, and costs fixed. Cooling is treated "
+        "only as a fixed cost when selected; its effect on water temperature "
+        "is not modelled. Biological rates between the source observations "
+        "are interpolated, and rates outside the observed range are held at "
+        "the endpoints. These scenario outputs are not validated forecasts "
+        "or proof of causal effects."
     )
 
 elif page == "Methods":
