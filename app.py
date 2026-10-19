@@ -76,6 +76,23 @@ st.markdown(
 )
 st.divider()
 
+# Supplementary File S1: reproducible scenario parameters
+SEED = 20260929
+N_MONTE_CARLO = 10000
+
+TMEAN = 28.5
+AMP0 = 3.5
+DPEAK = 115
+ALPHA = 0.08
+BETA = 0.03
+E_SD = 0.30
+
+TOPT = 29.0
+SIGMA = 1.0
+SMAX = 44.9
+
+TCRIT0 = 30.75
+DELTA_G = 0.15
 
 def biological_rates(temp):
     """Illustrative interpolation between the two supplied observations."""
