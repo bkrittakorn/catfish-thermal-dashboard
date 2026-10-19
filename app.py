@@ -651,14 +651,28 @@ elif page == "Sensitivity Analysis":
         f"Costs deducted: ฿{total_cost:,.0f}."
     )
 
-    delta_temps = np.linspace(
-        temp_range[0], temp_range[1], 31
-    )
+    
+    # Keep all scenario temperatures within the dashboard's 25–36°C range
+    requested_min = base_temp + temp_range[0]
+    requested_max = base_temp + temp_range[1]
+
+    scenario_min = max(25.0, requested_min)
+    scenario_max = min(36.0, requested_max)
+
+    if scenario_min > scenario_max:
+        # If the requested range is entirely outside the valid domain,
+        # use the nearest boundary temperature as a single scenario.
+        scenario_temps = np.array([
+            float(np.clip(base_temp + np.mean(temp_range), 25.0, 36.0))
+        ])
+    else:
+        scenario_temps = np.linspace(scenario_min, scenario_max, 31)
 
     sens_rows = []
-    for delta in delta_temps:
-        temp = base_temp + delta
+    for temp in scenario_temps:
+        delta = temp - base_temp
         f, h, s, survivors, revenue, net = calculate_scenario(temp)
+
         sens_rows.append({
             "Temperature change (°C)": delta,
             "Scenario temperature (°C)": temp,
@@ -674,6 +688,7 @@ elif page == "Sensitivity Analysis":
             "Change in survivors vs baseline": survivors - baseline_survivors,
             "Change in net result vs baseline (THB)": net - baseline_net
         })
+
 
     sens_df = pd.DataFrame(sens_rows)
 
