@@ -38,19 +38,25 @@ def sediment_model(initial, years, input_rate, decay):
 
     return result
 
-
 def run_aquamonitor():
-    st.title("AquaMonitor")
+    language = st.session_state.get("language", "English")
+    is_thai = language == "ไทย"
+
+    st.title("💧 AquaMonitor")
 
     st.subheader(
-        "Water Quality & Heavy Metal Risk Assessment in Fish"
+        "วิเคราะห์คุณภาพน้ำและความเสี่ยงจากโลหะหนักในปลา"
+        if is_thai
+        else "Water Quality & Heavy Metal Risk Assessment in Fish"
     )
 
     st.write(
-        "Enter measured heavy metal concentrations in fish muscle "
-        "to calculate screening-level Hazard Quotients (HQ) and the "
-        "Hazard Index (HI). You can also explore illustrative "
-        "sediment chromium (Cr) scenarios."
+        "กรอกผลตรวจโลหะหนักในกล้ามเนื้อปลา "
+        "เพื่อคำนวณค่าคัดกรอง HQ และ HI"
+        if is_thai
+        else "Enter measured heavy metal concentrations in fish muscle "
+             "to calculate screening-level Hazard Quotients (HQ) "
+             "and the Hazard Index (HI)."
     )
 
     st.info(
