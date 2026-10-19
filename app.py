@@ -4,6 +4,12 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
+REFERENCE = {
+    "Temperature (°C)": [29, 32],
+    "Fertilization rate": [0.677, 0.590],
+    "Hatching rate": [0.434, 0.266],
+    "Survival rate to 72 h": [0.449, 0.0],
+}
 
 st.set_page_config(
     page_title="Catfish Thermal Risk Dashboard",
