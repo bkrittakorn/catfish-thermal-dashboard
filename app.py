@@ -421,7 +421,11 @@ elif page == "Climate Simulation":
     upper_temp = base_temp + q975[yindex]
 
     tcrit_static = np.full(n_days, TCRIT0)
-    tcrit_scenario = TCRIT0 + delta_g * (time_year - 2026)
+
+    tcrit_scenario = (
+    TCRIT0
+    + delta_g * yindex
+    )
 
     climate_df = pd.DataFrame({
         "Year": time_year,
@@ -833,14 +837,14 @@ elif page == "Methods":
 
     st.markdown("### 6. Monte Carlo uncertainty")
     st.write(
-    "The multiyear climate scenario uses 10,000 Monte Carlo simulations. "
-    "Each simulated year receives one normally distributed temperature "
-    "anomaly shared by all days in that year. The default anomaly "
-    "standard deviation is 0.30°C. The displayed band is based on the "
-    "2.5th and 97.5th percentiles of simulated annual anomalies and "
-    "represents a simulation interval under the specified assumptions, "
-    "not a confidence interval estimated from observed local climate data "
-    "or a calibrated climate forecast."
+        "The multiyear climate scenario uses 10,000 Monte Carlo simulations. "
+        "Each simulated year receives one normally distributed temperature "
+        "anomaly shared by all days in that year. The default anomaly "
+        "standard deviation is 0.30°C. The displayed band is based on the "
+        "2.5th and 97.5th percentiles of simulated annual anomalies and "
+        "represents a simulation interval under the specified assumptions, "
+        "not a confidence interval estimated from observed local climate data "
+        "or a calibrated climate forecast."
     )
 
     st.markdown("### 7. Threshold scenario")
