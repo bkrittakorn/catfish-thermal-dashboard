@@ -22,10 +22,18 @@ st.set_page_config(
 if "language" not in st.session_state:
     st.session_state["language"] = "English"
 
+# ใช้ตัวเลือกภาษาเพียงจุดเดียวทั้งแอป
+st.sidebar.radio(
+    "Language / ภาษา",
+    options=["English", "ไทย"],
+    key="language",
+)
 
 def tr(en, th):
-    """Return the selected language."""
-    return th if st.session_state.get("language", "English") == "ไทย" else en
+    """Return text according to the selected language."""
+    if st.session_state.get("language", "English") == "ไทย":
+        return th
+    return en
 
 
 # ============================================================
