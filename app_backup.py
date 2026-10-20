@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,6 +16,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 
 st.markdown("""
 <style>
@@ -65,17 +65,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# Supplementary File S1: reproducible scenario parameters
+SEED = 20260929
+N_MONTE_CARLO = 10000
 
-st.title("🐟 Catfish Thermal Risk Dashboard")
-st.caption(
-    "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
-)
+TMEAN = 28.5
+AMP0 = 3.5
+DPEAK = 115
+ALPHA = 0.08
+BETA = 0.03
+E_SD = 0.30
 
-st.markdown(
-    "Interactive decision-support prototype for hybrid catfish hatchery research."
-)
-st.divider()
+TOPT = 29.0
+SIGMA = 1.0
+SMAX = 44.9
 
+TCRIT0 = 30.75
+DELTA_G = 0.15
+
+def seasonal_temperature(day, year_index):
+    """Seasonal temperature scenario from Supplementary File S1."""
+    return (
+        TMEAN
+        + ALPHA * year_index
+        + (AMP0 + BETA * year_index)
+        * np.cos(2 * np.pi * (day - DPEAK) / 365.0)
+    )
 
 def biological_rates(temp):
     """Illustrative interpolation between the two supplied observations."""
@@ -101,7 +116,8 @@ page = st.sidebar.radio(
         "Hatchery Calculator",
         "Climate Simulation",
         "Sensitivity Analysis",
-        "Methods"
+        "AquaMonitor",
+        "Methods",
     ]
 )
 
@@ -123,194 +139,412 @@ cooling_cost = st.sidebar.number_input(
     value=80_000.0, step=5_000.0
 )
 
+
 if page == "Overview":
+    st.title("Catfish Thermal Risk Dashboard")
+    st.caption(
+        "THERMAL RISK • HATCHERY PERFORMANCE • CLIMATE SCENARIOS"
+    )
+    st.markdown(
+        "Interactive decision-support prototype for hybrid catfish hatchery research."
+    )
+    st.divider()
+
     st.subheader("Overview")
-    temp = st.slider("Water temperature (°C)", 25.0, 36.0, 29.0, 0.5)
+
+    st.caption(
+        "Exploratory dashboard for temperature-related hatchery scenarios"
+    )
+
+    temp = st.slider(
+        "Water temperature (°C)",
+        min_value=25.0,
+        max_value=36.0,
+        value=29.0,
+        step=0.5
+    )
+
     fert, hatch, survival = biological_rates(temp)
 
     survivors = eggs * fert * hatch * survival
     revenue = survivors * fry_price
     cost = base_cost + cooling_cost
+    net_result = revenue - cost
 
-    a, b, c, d = st.columns(4)
-    a.metric("Fertilization", f"{fert:.1%}")
-    b.metric("Hatching", f"{hatch:.1%}")
-    c.metric("Estimated survivors", f"{survivors:,.0f}")
-    d.metric("Illustrative net result", f"฿{revenue - cost:,.0f}")
+    st.markdown("### Biological estimates")
 
-    st.info(
-        "Rates at temperatures outside the two observations are illustrative "
-        "and should not be interpreted as validated biological predictions."
+    a, b, c = st.columns(3)
+    a.metric("Fertilization rate", f"{fert:.1%}")
+    b.metric("Hatching rate", f"{hatch:.1%}")
+    c.metric("Survival to 72 h", f"{survival:.1%}")
+
+    st.markdown("### Hatchery economic scenario")
+
+    d, e, f = st.columns(3)
+    d.metric("Estimated survivors", f"{survivors:,.0f}")
+    e.metric("Illustrative revenue", f"฿{revenue:,.2f}")
+    f.metric("Total specified costs", f"฿{cost:,.2f}")
+
+    st.metric(
+        "Illustrative net result",
+        f"฿{net_result:,.2f}",
+        help="Illustrative revenue minus the specified operating and cooling costs."
     )
+
+    with st.expander("View calculation assumptions"):
+        st.write(f"Water temperature: {temp:.1f} °C")
+        st.write(f"Initial egg count: {eggs:,.0f}")
+        st.write(f"Price per fry: ฿{fry_price:,.2f}")
+        st.write(f"Operating cost: ฿{base_cost:,.2f}")
+        st.write(f"Cooling cost: ฿{cooling_cost:,.2f}")
+
+        st.latex(
+            r"N_{\mathrm{survivors}}"
+            r"=N_0\times F\times H\times S_{72}"
+        )
+        st.latex(
+            r"\mathrm{Net\ result}"
+            r"=\mathrm{Revenue}-\mathrm{Total\ costs}"
+        )
+
+    st.warning(
+        "Important limitation: biological rates are based on observations "
+        "at 29°C and 32°C. The dashboard linearly interpolates between "
+        "these temperatures and holds rates at the nearest endpoint "
+        "outside this range. These are illustrative estimates, not "
+        "validated predictions of hatchery performance. The economic "
+        "result includes only the costs specified in the calculator."
+    )
+
+
 
 elif page == "Hatchery Calculator":
     st.subheader("Hatchery Calculator")
-    temp = st.slider("Water temperature (°C)", 25.0, 36.0, 29.0, 0.5)
+    st.caption(
+        "Estimate hatchery output and illustrative economics "
+        "under a selected water-temperature scenario."
+    )
+
+    temp = st.slider(
+        "Water temperature (°C)",
+        min_value=25.0,
+        max_value=36.0,
+        value=29.0,
+        step=0.5
+    )
+
     fert, hatch, survival = biological_rates(temp)
 
+    # Biological calculations
     fertilized = eggs * fert
     hatched = fertilized * hatch
     survivors = hatched * survival
+
+    # Economic calculations
     revenue = survivors * fry_price
     total_cost = base_cost + cooling_cost
+    net_result = revenue - total_cost
+
+    st.markdown("### 1. Biological estimates")
+
+    a, b, c = st.columns(3)
+    a.metric("Fertilization rate", f"{fert:.1%}")
+    b.metric("Hatching rate", f"{hatch:.1%}")
+    c.metric("Survival to 72 h", f"{survival:.1%}")
+
+    st.markdown("### 2. Estimated production")
 
     results = pd.DataFrame({
-        "Stage": ["Initial eggs", "Estimated fertilized", "Estimated hatched",
-                  "Estimated survivors"],
-        "Count": [eggs, fertilized, hatched, survivors]
+        "Production stage": [
+            "Initial eggs",
+            "Estimated fertilized eggs",
+            "Estimated hatched larvae",
+            "Estimated survivors at 72 h"
+        ],
+        "Estimated count": [
+            eggs,
+            fertilized,
+            hatched,
+            survivors
+        ]
     })
+
     st.plotly_chart(
-        px.bar(results, x="Stage", y="Count", text_auto=".3s"),
+        px.bar(
+            results,
+            x="Production stage",
+            y="Estimated count",
+            text_auto=".3s",
+            title="Estimated production at each stage"
+        ),
         use_container_width=True
     )
 
+    st.dataframe(
+        results.style.format({
+            "Estimated count": "{:,.0f}"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.markdown("### 3. Illustrative economic results")
+
     x, y, z = st.columns(3)
-    x.metric("Estimated revenue", f"฿{revenue:,.0f}")
-    y.metric("Total costs", f"฿{total_cost:,.0f}")
-    z.metric("Illustrative net result", f"฿{revenue - total_cost:,.0f}")
+    x.metric("Estimated revenue", f"฿{revenue:,.2f}")
+    y.metric("Total specified costs", f"฿{total_cost:,.2f}")
+    z.metric("Illustrative net result", f"฿{net_result:,.2f}")
+
+    with st.expander("View calculation assumptions"):
+        st.write(f"Water temperature: {temp:.1f} °C")
+        st.write(f"Initial egg count: {eggs:,.0f}")
+        st.write(f"Price per fry: ฿{fry_price:,.2f}")
+        st.write(f"Operating cost: ฿{base_cost:,.2f}")
+        st.write(f"Cooling cost: ฿{cooling_cost:,.2f}")
+
+        st.latex(
+            r"N_{\mathrm{survivors}}"
+            r"=N_0\times F\times H\times S_{72}"
+        )
+
+        st.latex(
+            r"\mathrm{Net\ result}"
+            r"=\mathrm{Revenue}-\mathrm{Total\ costs}"
+        )
+
+    st.warning(
+        "These are illustrative estimates. Biological rates are based on "
+        "observations at 29°C and 32°C, with linear interpolation between "
+        "them and endpoint values held outside that range. Actual production "
+        "may differ. Total costs include only the operating and cooling costs "
+        "entered in the dashboard."
+    )
 
 elif page == "Climate Simulation":
     st.subheader("Climate Simulation")
     st.write(
-        "Explore how hypothetical temperature changes may affect biological "
-        "rates and hatchery outcomes. This is a scenario tool, not a climate forecast."
+        "Reproducible seasonal and multiyear temperature scenarios "
+        "based on Supplementary File S1. These are illustrative scenarios, "
+        "not calibrated local climate forecasts."
     )
 
-    c1, c2, c3 = st.columns(3)
+    # Scenario controls
+    c1, c2 = st.columns(2)
     with c1:
-        start_temp = st.slider(
-            "Starting temperature (°C)", 25.0, 34.0, 29.0, 0.5
+        anomaly_sd = st.slider(
+            "Annual temperature anomaly SD (°C)",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(E_SD),
+            step=0.05,
+            help="S1 default: 0.30°C. One anomaly is shared by all days in each year."
         )
     with c2:
-        warming = st.slider(
-            "Hypothetical warming (°C/year)", 0.0, 0.20, 0.03, 0.01
-        )
-    with c3:
-        years = st.slider("Projection period (years)", 1, 20, 10)
-
-    st.markdown("### Annual scenario")
-    annual = pd.DataFrame({"Year": np.arange(0, years + 1)})
-    annual["Temperature (°C)"] = start_temp + annual["Year"] * warming
-
-    rates = annual["Temperature (°C)"].apply(biological_rates)
-    annual["Fertilization"] = [r[0] for r in rates]
-    annual["Hatching"] = [r[1] for r in rates]
-    annual["Survival to 72 h"] = [r[2] for r in rates]
-    annual["Estimated survivors"] = (
-        eggs * annual["Fertilization"] * annual["Hatching"]
-        * annual["Survival to 72 h"]
-    )
-
-    st.plotly_chart(
-        px.line(
-            annual, x="Year", y="Temperature (°C)",
-            markers=True, title="Hypothetical temperature trajectory"
-        ),
-        use_container_width=True
-    )
-
-    rate_data = annual.melt(
-        id_vars="Year",
-        value_vars=["Fertilization", "Hatching", "Survival to 72 h"],
-        var_name="Biological indicator",
-        value_name="Rate"
-    )
-    st.plotly_chart(
-        px.line(
-            rate_data, x="Year", y="Rate",
-            color="Biological indicator", markers=True,
-            title="Illustrative biological rates over time"
-        ).update_yaxes(tickformat=".0%", range=[0, 1]),
-        use_container_width=True
-    )
-
-    st.plotly_chart(
-        px.line(
-            annual, x="Year", y="Estimated survivors",
-            markers=True, title="Estimated survivors by scenario year"
-        ),
-        use_container_width=True
-    )
-
-    st.markdown("### Monte Carlo temperature uncertainty")
-    st.write(
-        "Random temperature anomalies are simulated around the final scenario "
-        "temperature. The anomaly spread is user-selected for exploration."
-    )
-
-    mc1, mc2 = st.columns(2)
-    with mc1:
-        sd = st.slider(
-            "Temperature anomaly standard deviation (°C)",
-            0.0, 2.0, 0.5, 0.1
-        )
-    with mc2:
-        simulations = st.selectbox(
-            "Number of simulations", [1000, 5000, 10000], index=1
+        delta_g = st.slider(
+            "Hypothetical threshold change Δg (°C/year)",
+            min_value=0.10,
+            max_value=0.20,
+            value=float(DELTA_G),
+            step=0.01,
+            help="Sensitivity assumption, not a measured evolutionary rate."
         )
 
     seed = st.number_input(
-        "Random seed (for reproducibility)",
-        min_value=0, max_value=999999, value=42, step=1
+        "Random seed",
+        min_value=0,
+        max_value=99999999,
+        value=int(SEED),
+        step=1
     )
 
-    rng = np.random.default_rng(int(seed))
-    final_temp = float(annual["Temperature (°C)"].iloc[-1])
-    simulated_temps = rng.normal(final_temp, sd, int(simulations))
-    simulated_temps = np.clip(simulated_temps, 25.0, 36.0)
+    # Panel A: seasonal cycle for a representative year
+    day = np.arange(1, 366)
+    temp_day = seasonal_temperature(day, 0)
+    
+    survival_pct = SMAX * np.exp(
+        -0.5 * ((temp_day - TOPT) / SIGMA) ** 2
+    )
 
-    sim_rates = [biological_rates(t) for t in simulated_temps]
-    sim_survivors = np.array([
-        eggs * f * h * s for f, h, s in sim_rates
-    ])
-
-    mc_df = pd.DataFrame({
-        "Simulated temperature (°C)": simulated_temps,
-        "Estimated survivors": sim_survivors
+    seasonal_df = pd.DataFrame({
+        "Day of year": day,
+        "Water temperature (°C)": temp_day,
+        "72-h larval survival (%)": survival_pct
     })
 
-    q05, q50, q95 = np.percentile(sim_survivors, [5, 50, 95])
-    m1, m2, m3 = st.columns(3)
-    m1.metric("5th percentile survivors", f"{q05:,.0f}")
-    m2.metric("Median survivors", f"{q50:,.0f}")
-    m3.metric("95th percentile survivors", f"{q95:,.0f}")
+    st.markdown("### A. Annual seasonal vulnerability cycle")
+    st.caption(
+        "The survival curve is the illustrative Gaussian response specified "
+        "in S1; it is not the same as the observed fertilization or hatching rates."
+    )
 
     st.plotly_chart(
-        px.histogram(
-            mc_df, x="Estimated survivors", nbins=40,
-            title="Monte Carlo distribution of estimated survivors"
+        px.line(
+            seasonal_df,
+            x="Day of year",
+            y="Water temperature (°C)",
+            title="Seasonal water temperature scenario"
         ),
         use_container_width=True
     )
 
+    st.plotly_chart(
+        px.line(
+            seasonal_df,
+            x="Day of year",
+            y="72-h larval survival (%)",
+            title="Illustrative temperature-dependent 72-h survival"
+        ).update_yaxes(range=[0, 50]),
+        use_container_width=True
+    )
+
+    # Panel B: multiyear climate scenario
+    years = np.arange(2026, 2037)
+    year_index = np.arange(len(years))
+    n_days = len(years) * 365
+
+    time_year = 2026 + np.arange(n_days) / 365.0
+    yindex = np.minimum(np.arange(n_days) // 365, len(years) - 1)
+    doy = (np.arange(n_days) % 365) + 1
+
+    base_temp = seasonal_temperature(doy, yindex)
+
+    # One random anomaly per year and simulation, shared across that year's days
+    rng = np.random.default_rng(int(seed))
+    anomalies = rng.normal(
+        0.0, anomaly_sd, size=(N_MONTE_CARLO, len(years))
+    )
+
+    q025 = np.quantile(anomalies, 0.025, axis=0)
+    q975 = np.quantile(anomalies, 0.975, axis=0)
+
+    mean_temp = base_temp
+    lower_temp = base_temp + q025[yindex]
+    upper_temp = base_temp + q975[yindex]
+
+    tcrit_static = np.full(n_days, TCRIT0)
+
+    tcrit_scenario = (
+    TCRIT0
+    + delta_g * yindex
+    )
+
+    climate_df = pd.DataFrame({
+        "Year": time_year,
+        "Mean scenario temperature (°C)": mean_temp,
+        "Lower 95% simulation interval (°C)": lower_temp,
+        "Upper 95% simulation interval (°C)": upper_temp,
+        "Static threshold (°C)": tcrit_static,
+        "Hypothetical changing threshold (°C)": tcrit_scenario
+    })
+
+    st.markdown("### B. Multiyear stochastic climate scenario")
+    st.caption(
+        "The main line shows the daily seasonal temperature baseline, "
+        "including the assumed long-term warming trend and seasonal-amplitude "
+        "change. The shaded band adds the 2.5th and 97.5th percentiles of "
+        "annual temperature anomalies from 10,000 Monte Carlo simulations. "
+        "The band represents uncertainty under the specified scenario "
+        "assumptions, not a calibrated local climate forecast. "
+        "The annual summary table reports values at each year's baseline."
+    )
+
+    fig = px.line(
+        climate_df,
+        x="Year",
+        y="Mean scenario temperature (°C)",
+        title="Daily Temperature Scenario and Annual Uncertainty (2026–2036)"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Upper 95% simulation interval (°C)"],
+        mode="lines",
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo="skip"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Lower 95% simulation interval (°C)"],
+        mode="lines",
+        line=dict(width=0),
+        fill="tonexty",
+        name="95% simulation interval",
+        hoverinfo="skip"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Static threshold (°C)"],
+        mode="lines",
+        name="Static threshold"
+    )
+    fig.add_scatter(
+        x=climate_df["Year"],
+        y=climate_df["Hypothetical changing threshold (°C)"],
+        mode="lines",
+        name="Hypothetical changing threshold"
+    )
+    fig.update_layout(
+        xaxis_title="Projection year",
+        yaxis_title="Water temperature (°C)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Annual summary of the seasonal model and Monte Carlo interval
+    annual_df = pd.DataFrame({
+        "Year": years,
+        "Mean annual temperature baseline (°C)": [
+            TMEAN + ALPHA * i for i in year_index
+        ],
+        "Seasonal amplitude (°C)": [
+            AMP0 + BETA * i for i in year_index
+        ],
+        "Annual anomaly lower 95% (°C)": q025,
+        "Annual anomaly upper 95% (°C)": q975,
+        "Static threshold (°C)": TCRIT0,
+        "Hypothetical changing threshold (°C)": (
+            TCRIT0 + delta_g * year_index
+        )
+    })
+
+    st.markdown("### Annual scenario data")
+    st.dataframe(annual_df, use_container_width=True)
+
     st.download_button(
-        "Download annual scenario CSV",
-        data=annual.to_csv(index=False).encode("utf-8-sig"),
-        file_name="catfish_climate_scenario.csv",
+        "Download annual climate scenario CSV",
+        data=annual_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_climate_scenario_s1.csv",
         mime="text/csv"
     )
+
     st.download_button(
-        "Download Monte Carlo CSV",
-        data=mc_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="catfish_monte_carlo.csv",
+        "Download daily seasonal scenario CSV",
+        data=seasonal_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_seasonal_scenario_s1.csv",
+        mime="text/csv"
+    )
+
+    st.download_button(
+        "Download multiyear daily simulation CSV",
+        data=climate_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="catfish_multiyear_climate_s1.csv",
         mime="text/csv"
     )
 
     st.warning(
-        "Important limitation: the supplied observations are only at 29°C and "
-        "32°C. This demo uses interpolation between those values and holds the "
-        "rates constant outside that interval. The warming rate and random "
-        "anomaly distribution are user-defined assumptions, not local climate "
-        "projections. Monte Carlo results represent uncertainty under these "
-        "assumptions, not validated probabilities of farm outcomes."
+        "Limitations: the seasonal temperatures, annual warming trend, "
+        "anomaly distribution, and changing threshold are scenario assumptions "
+        "from Supplementary File S1. They are not locally calibrated forecasts. "
+        "The survival curve is an illustrative equation and must not be "
+        "interpreted as a validated prediction of farm-level survival."
     )
 
 
 elif page == "Sensitivity Analysis":
     st.subheader("Sensitivity Analysis")
     st.write(
-        "Explore how changes in key assumptions affect estimated survivors "
-        "and the illustrative net financial result."
+        "Explore how temperature assumptions affect estimated larval "
+        "survival and illustrative financial outcomes. All results depend "
+        "on the selected assumptions and the biological-rate model."
     )
 
     st.markdown("### Set baseline assumptions")
@@ -318,57 +552,136 @@ elif page == "Sensitivity Analysis":
 
     with s1:
         base_temp = st.slider(
-            "Baseline temperature (°C)", 25.0, 36.0, 29.0, 0.5
+            "Baseline temperature (°C)",
+            25.0, 36.0, 29.0, 0.5,
+            key="sens_base_temp"
         )
         temp_range = st.slider(
             "Temperature change range (°C)",
-            -3.0, 3.0, (-2.0, 2.0), 0.5
+            -3.0, 3.0, (-2.0, 2.0), 0.5,
+            key="sens_temp_range"
         )
         base_eggs = st.number_input(
-            "Eggs for analysis", min_value=1,
-            value=5_000_000, step=100_000, key="sens_eggs"
+            "Initial eggs",
+            min_value=1,
+            value=5_000_000,
+            step=100_000,
+            key="sens_eggs"
         )
 
     with s2:
         price = st.number_input(
-            "Price per fry (THB)", min_value=0.0,
-            value=1.50, step=0.10, key="sens_price"
+            "Price per fry (THB)",
+            min_value=0.0,
+            value=1.50,
+            step=0.10,
+            key="sens_price"
         )
         operating = st.number_input(
-            "Operating cost (THB)", min_value=0.0,
-            value=100_000.0, step=5_000.0, key="sens_cost"
+            "Base operating cost (THB)",
+            min_value=0.0,
+            value=100_000.0,
+            step=5_000.0,
+            key="sens_cost"
         )
         cooling = st.number_input(
-            "Cooling cost (THB)", min_value=0.0,
-            value=80_000.0, step=5_000.0, key="sens_cooling"
+            "Cooling cost (THB)",
+            min_value=0.0,
+            value=80_000.0,
+            step=5_000.0,
+            key="sens_cooling"
         )
+
+    include_cooling = st.checkbox(
+        "Include cooling cost in all scenarios",
+        value=False,
+        help=(
+            "If checked, the specified cooling cost is deducted from every "
+            "scenario. This does not model cooling effectiveness or energy use."
+        ),
+        key="sens_include_cooling"
+    )
+
+    applied_cooling_cost = cooling if include_cooling else 0.0
+    total_cost = operating + applied_cooling_cost
 
     def calculate_scenario(temp):
         f, h, s = biological_rates(temp)
         survivors = base_eggs * f * h * s
         revenue = survivors * price
-        net = revenue - operating - cooling
-        return survivors, revenue, net
+        net = revenue - total_cost
+        return f, h, s, survivors, revenue, net
 
-    baseline_survivors, baseline_revenue, baseline_net = (
-        calculate_scenario(base_temp)
+    (
+        base_fert,
+        base_hatch,
+        base_survival,
+        baseline_survivors,
+        baseline_revenue,
+        baseline_net
+    ) = calculate_scenario(base_temp)
+
+    st.markdown("### Baseline results")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Estimated survivors", f"{baseline_survivors:,.0f}")
+    m2.metric("Estimated revenue", f"฿{baseline_revenue:,.0f}")
+    m3.metric("Illustrative net result", f"฿{baseline_net:,.0f}")
+
+    st.caption(
+        f"Baseline rates: fertilization {base_fert:.1%}, "
+        f"hatching {base_hatch:.1%}, 72-h survival {base_survival:.1%}. "
+        f"Costs deducted: ฿{total_cost:,.0f}."
     )
 
-    delta_temps = np.linspace(
-        temp_range[0], temp_range[1], 31
-    )
+    
+    # Keep all scenario temperatures within the dashboard's 25–36°C range
+    requested_min = base_temp + temp_range[0]
+    requested_max = base_temp + temp_range[1]
+
+    scenario_min = max(25.0, requested_min)
+    scenario_max = min(36.0, requested_max)
+
+    if scenario_min > scenario_max:
+        # If the requested range is entirely outside the valid domain,
+        # use the nearest boundary temperature as a single scenario.
+        scenario_temps = np.array([
+            float(np.clip(base_temp + np.mean(temp_range), 25.0, 36.0))
+        ])
+    else:
+        scenario_temps = np.linspace(scenario_min, scenario_max, 31)
+
+    # Inform the user if the requested range was clipped
+    if (
+        scenario_min > requested_min
+        or scenario_max < requested_max
+    ):
+        st.info(
+            "Some requested temperatures fall outside the supported "
+            "25–36°C range. The sensitivity analysis uses only "
+            "temperatures within this range."
+        )
 
     sens_rows = []
-    for delta in delta_temps:
-        t = base_temp + delta
-        survivors, revenue, net = calculate_scenario(t)
+    for temp in scenario_temps:
+        delta = temp - base_temp
+        f, h, s, survivors, revenue, net = calculate_scenario(temp)
+
         sens_rows.append({
             "Temperature change (°C)": delta,
-            "Scenario temperature (°C)": t,
+            "Scenario temperature (°C)": temp,
+            "Fertilization rate": f,
+            "Hatching rate": h,
+            "72-h survival rate": s,
             "Estimated survivors": survivors,
             "Revenue (THB)": revenue,
-            "Net result (THB)": net
+            "Operating cost (THB)": operating,
+            "Cooling cost included (THB)": applied_cooling_cost,
+            "Total costs (THB)": total_cost,
+            "Net result (THB)": net,
+            "Change in survivors vs baseline": survivors - baseline_survivors,
+            "Change in net result vs baseline (THB)": net - baseline_net
         })
+
 
     sens_df = pd.DataFrame(sens_rows)
 
@@ -380,7 +693,7 @@ elif page == "Sensitivity Analysis":
             y="Estimated survivors",
             markers=True,
             title="Estimated survivors across temperature scenarios"
-        ),
+        ).update_yaxes(rangemode="tozero"),
         use_container_width=True
     )
 
@@ -395,14 +708,33 @@ elif page == "Sensitivity Analysis":
         use_container_width=True
     )
 
+    st.plotly_chart(
+        px.line(
+            sens_df,
+            x="Temperature change (°C)",
+            y="Change in survivors vs baseline",
+            markers=True,
+            title="Change in estimated survivors relative to baseline"
+        ),
+        use_container_width=True
+    )
+
     st.markdown("### Scenario results")
     st.dataframe(
         sens_df.style.format({
             "Temperature change (°C)": "{:+.1f}",
             "Scenario temperature (°C)": "{:.1f}",
+            "Fertilization rate": "{:.1%}",
+            "Hatching rate": "{:.1%}",
+            "72-h survival rate": "{:.1%}",
             "Estimated survivors": "{:,.0f}",
             "Revenue (THB)": "฿{:,.0f}",
-            "Net result (THB)": "฿{:,.0f}"
+            "Operating cost (THB)": "฿{:,.0f}",
+            "Cooling cost included (THB)": "฿{:,.0f}",
+            "Total costs (THB)": "฿{:,.0f}",
+            "Net result (THB)": "฿{:,.0f}",
+            "Change in survivors vs baseline": "{:+,.0f}",
+            "Change in net result vs baseline (THB)": "฿{:+,.0f}"
         }),
         use_container_width=True
     )
@@ -415,33 +747,149 @@ elif page == "Sensitivity Analysis":
     )
 
     st.info(
-        "This sensitivity analysis varies temperature while holding the other "
-        "inputs fixed. It does not establish causal effects or biological "
-        "uncertainty. Results depend on the illustrative interpolation model."
+        "Interpretation and limitations: this analysis changes temperature "
+        "while holding egg number, price, and costs fixed. Cooling is treated "
+        "only as a fixed cost when selected; its effect on water temperature "
+        "is not modelled. Biological rates between the source observations "
+        "are interpolated, and rates outside the observed range are held at "
+        "the endpoints. These scenario outputs are not validated forecasts "
+        "or proof of causal effects."
     )
 
 
 elif page == "Methods":
-    st.subheader("Methods and limitations")
-    st.markdown("""
-    **Reference observations**
+    st.subheader("Methods, data sources and limitations")
 
-    - At 29°C: fertilization 67.7%, hatching 43.4%, survival to 72 h 44.9%.
-    - At 32°C: fertilization 59.0%, hatching 26.6%, survival to 72 h 0%.
+    st.markdown("### 1. Reference biological observations")
+    st.write(
+        "The prototype uses the two temperature-specific observations "
+        "provided in the source study."
+    )
 
-    **Current prototype**
+    reference_df = pd.DataFrame({
+        "Temperature (°C)": [29, 32],
+        "Fertilization rate": [0.677, 0.590],
+        "Hatching rate": [0.434, 0.266],
+        "Survival to 72 h": [0.449, 0.000]
+    })
 
-    - Uses linear interpolation between the two observed temperatures.
-    - Holds rates constant outside the observed temperature interval.
-    - Uses hypothetical warming and normally distributed temperature anomalies
-      in the Monte Carlo exploration.
-    - Calculates survivors as initial eggs × fertilization rate × hatching rate
-      × survival rate.
+    st.dataframe(
+        reference_df.style.format({
+            "Fertilization rate": "{:.1%}",
+            "Hatching rate": "{:.1%}",
+            "Survival to 72 h": "{:.1%}"
+        }),
+        use_container_width=True
+    )
 
-    **Not yet implemented**
+    st.caption(
+        "Source-study values reproduced in Supplementary File S1. "
+        "The two temperature observations do not establish a complete "
+        "biological response curve."
+    )
 
-    - The original seasonal temperature cycle and Q10 assumptions.
-    - Calibrated local climate projections.
-    - Confidence intervals fitted to experimental biological data.
-    - Independent validation of the biological and economic model.
-    """)
+    st.markdown("### 2. Hatchery calculation")
+    st.latex(
+        r"N_{\mathrm{survivors}} = N_0 "
+        r"\times F \times H \times S_{72}"
+    )
+    st.write(
+        "Estimated survivors are calculated by multiplying the initial "
+        "egg count by fertilization, hatching and 72-hour survival rates. "
+        "Illustrative revenue is estimated survivors multiplied by the "
+        "user-entered price per fry. The net result subtracts the specified "
+        "operating and cooling costs."
+    )
+
+    st.markdown("### 3. Biological-rate approximation")
+    st.write(
+        "For the Overview, Hatchery Calculator and Sensitivity Analysis "
+        "pages, the prototype linearly interpolates between the observed "
+        "rates at 29°C and 32°C. Outside that interval, rates are held at "
+        "the nearest endpoint. This is a simplifying approximation, not a "
+        "validated biological response model."
+    )
+
+    st.markdown("### 4. Seasonal and multiyear climate scenario")
+    st.latex(
+        r"T(d,y)=T_{\mathrm{mean}}+\alpha y+"
+        r"(A_0+\beta y)\cos\left(\frac{2\pi(d-D_{\mathrm{peak}})}{365}\right)"
+    )
+    st.write(
+        "The Climate Simulation page uses the illustrative seasonal and "
+        "multiyear scenario parameters from Supplementary File S1: mean "
+        "temperature 28.5°C, initial seasonal amplitude 3.5°C, peak day 115, "
+        "mean warming parameter 0.08°C/year, and amplitude-change parameter "
+        "0.03°C/year."
+    )
+
+    st.markdown("### 5. Seasonal survival illustration")
+    st.latex(
+        r"S(T)=S_{\max}\exp\left[-\frac{1}{2}"
+        r"\left(\frac{T-T_{\mathrm{opt}}}{\sigma}\right)^2\right]"
+    )
+    st.write(
+        "The seasonal survival curve uses the illustrative Gaussian equation "
+        "in Supplementary File S1, with Smax = 44.9%, Topt = 29°C and "
+        "sigma = 1°C. This curve is displayed separately from the observed "
+        "fertilization and hatching rates; it is not a validated prediction "
+        "of farm-level survival."
+    )
+
+    st.markdown("### 6. Monte Carlo uncertainty")
+    st.write(
+        "The multiyear climate scenario uses 10,000 Monte Carlo simulations. "
+        "Each simulated year receives one normally distributed temperature "
+        "anomaly shared by all days in that year. The default anomaly "
+        "standard deviation is 0.30°C. The displayed band is based on the "
+        "2.5th and 97.5th percentiles of simulated annual anomalies and "
+        "represents a simulation interval under the specified assumptions, "
+        "not a confidence interval estimated from observed local climate data "
+        "or a calibrated climate forecast."
+    )
+
+    st.markdown("### 7. Threshold scenario")
+    st.latex(
+        r"T_{\mathrm{crit}}(y)=T_{\mathrm{crit},0}"
+        r"+\Delta_g(y-2026)"
+    )
+    st.write(
+        "The changing threshold is a hypothetical sensitivity line starting "
+        "at 30.75°C in 2026. Its annual change is user-adjustable within "
+        "the interface. It must not be interpreted as a measured genetic "
+        "adaptation rate or a demonstrated evolutionary outcome."
+    )
+
+    st.markdown("### 8. Sensitivity Analysis")
+    st.write(
+        "Sensitivity Analysis varies temperature while holding egg number, "
+        "price and selected costs fixed. Cooling cost can be included as a "
+        "fixed expense, but the model does not simulate cooling-system "
+        "performance, energy consumption or the resulting change in water "
+        "temperature."
+    )
+
+    st.markdown("### 9. Limitations")
+    st.warning(
+        "This dashboard is an exploratory scenario tool. It is not a "
+        "calibrated local climate forecast, a validated farm-production "
+        "model, or an experimentally fitted biological response model. "
+        "Only two source-study temperature observations are used for the "
+        "fertilization, hatching and 72-hour survival calculations. "
+        "Economic outputs depend on user-entered assumptions. Independent "
+        "validation and additional experimental and local climate data are "
+        "required before operational or policy decisions are based on these results."
+    )
+
+    st.markdown("### 10. Reproducibility")
+    st.write(
+        "The climate scenario uses a configurable random seed, with "
+        "20260929 as the default, and 10,000 Monte Carlo simulations. "
+        "Downloaded CSV files contain scenario outputs for further inspection."
+    )
+    
+elif page == "AquaMonitor":
+    from aquamonitor import run_aquamonitor
+    run_aquamonitor()
+
+เพิ่มปุ่มเปลี่ยนภาษา เป็นภาษาไทยและอังกฤษ
