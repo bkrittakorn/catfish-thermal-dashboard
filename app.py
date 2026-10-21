@@ -1136,7 +1136,7 @@ h1, h2, h3, h4, h5, button, input, textarea, select, .stCaption,
 }
 
 .stApp { background-color: #F4F8FA; color: #1F2D3A; }
-.block-container { padding-top: 3.5rem; padding-bottom: 3.5rem; max-width: 1180px; }
+.block-container { padding-top: 5rem !important; padding-bottom: 3.5rem; max-width: 1180px; }
 
 [data-testid="stSidebar"] {
     background-color: #E8F1F4;
@@ -1203,7 +1203,7 @@ div[data-testid="stAlert"] { border-radius: 10px; }
 footer { visibility: hidden; }
 
 @media (max-width: 768px) {
-    .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 2.0rem; }
+    .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 3rem !important; }
     .pg-head h1 { font-size: 1.5rem; }
     [data-testid="stMetric"] { padding: 12px 14px; }
 }
