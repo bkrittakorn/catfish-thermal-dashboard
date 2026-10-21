@@ -1148,7 +1148,7 @@ h1 { color: #123B4A; font-weight: 700; letter-spacing: -0.3px; }
 h2, h3, h4 { color: #1B5565; font-weight: 600; }
 
 /* Page header */
-.pg-head { border-bottom: 2px solid #CFE0E6; padding-bottom: 0.9rem; margin-bottom: 1.4rem; }
+.pg-head {border-bottom: 2px solid #CFE0E6; padding-top: 0.8rem; padding-bottom: 0.9rem; margin-bottom: 1.4rem;}
 .pg-head h1 { margin: 0 0 0.25rem 0; padding: 0; font-size: 2rem; line-height: 1.25; }
 .pg-head p { margin: 0; color: #4A6270; font-size: 1.02rem; line-height: 1.55; max-width: 62rem; }
 
@@ -1181,7 +1181,7 @@ div[data-testid="stAlert"] { border-radius: 10px; }
 [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
 
 /* Section headings */
-.sec { margin: 1.8rem 0 0.4rem 0; }
+.sec { margin: 2.4rem 0 0.4rem 0; }
 .sec h3 { margin: 0; font-size: 1.28rem; color: #1B5565; }
 .sec .rule { height: 3px; width: 44px; background: #1F7A8C; margin-top: 0.4rem; border-radius: 2px; }
 
