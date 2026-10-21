@@ -1136,7 +1136,7 @@ h1, h2, h3, h4, h5, button, input, textarea, select, .stCaption,
 }
 
 .stApp { background-color: #F4F8FA; color: #1F2D3A; }
-.block-container { padding-top: 3.5rem; padding-bottom: 3rem; max-width: 1180px; }
+.block-container { padding-top: 3.5rem; padding-bottom: 3.5rem; max-width: 1180px; }
 
 [data-testid="stSidebar"] {
     background-color: #E8F1F4;
