@@ -1149,7 +1149,7 @@ h2, h3, h4 { color: #1B5565; font-weight: 600; }
 
 /* Page header */
 .pg-head {border-bottom: 2px solid #CFE0E6; padding-top: 0.3rem; padding-bottom: 0.9rem; margin-bottom: 1.4rem;}
-.pg-head h1 { margin:1 0 0.25rem 0; font-size: 2rem; line-height: 1.25; }
+.pg-head h1 { margin:1 0 0.25rem 0; padding: 0; font-size: 2rem; line-height: 1.25; }
 .pg-head p { margin: 0; color: #4A6270; font-size: 1.02rem; line-height: 1.55; max-width: 62rem; }
 
 /* Sidebar brand */
