@@ -1136,7 +1136,7 @@ h1, h2, h3, h4, h5, button, input, textarea, select, .stCaption,
 }
 
 .stApp { background-color: #F4F8FA; color: #1F2D3A; }
-.block-container { padding-top: 3.0rem; padding-bottom: 3rem; max-width: 1180px; }
+.block-container { padding-top: 3.5rem; padding-bottom: 3rem; max-width: 1180px; }
 
 [data-testid="stSidebar"] {
     background-color: #E8F1F4;
@@ -1148,7 +1148,7 @@ h1 { color: #123B4A; font-weight: 700; letter-spacing: -0.3px; }
 h2, h3, h4 { color: #1B5565; font-weight: 600; }
 
 /* Page header */
-.pg-head {border-bottom: 2px solid #CFE0E6; padding-top: 1.2rem; padding-bottom: 0.9rem; margin-bottom: 1.4rem;}
+.pg-head {border-bottom: 2px solid #CFE0E6; padding-top: 0.3rem; padding-bottom: 0.9rem; margin-bottom: 1.4rem;}
 .pg-head h1 { margin: 0 0 0.25rem 0; padding: 0; font-size: 2rem; line-height: 1.25; }
 .pg-head p { margin: 0; color: #4A6270; font-size: 1.02rem; line-height: 1.55; max-width: 62rem; }
 
